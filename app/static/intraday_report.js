@@ -237,7 +237,7 @@ function renderInsights() {
   const summary = summarizeRows(rows);
   const cards = [
     ['Loaded rows', state.payload.instances_returned],
-    ['Bars scanned', state.payload.total_bars],
+    ['Bars scanned', state.payload.total_bars === 'not_counted_on_page_load' ? 'DB preserved' : state.payload.total_bars],
     ['Target exits', `${formatNumber(summary.target_rate_pct, 1)}%`],
     ['Timeout exits', `${formatNumber(summary.timeout_rate_pct, 1)}%`],
     ['Avg volume x', `${formatNumber(summary.avg_volume_multiple, 1)}x`],

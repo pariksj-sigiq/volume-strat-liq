@@ -360,6 +360,25 @@ def build_precomputed_intraday_report(report_path: Path, db_path: Path | None = 
     if not report_path.is_file():
         raise FileNotFoundError(f"Intraday report not found: {report_path}")
 
+    stat = report_path.stat()
+    return _build_precomputed_intraday_report_cached(
+        str(report_path),
+        stat.st_mtime_ns,
+        stat.st_size,
+        str(db_path) if db_path else "",
+    )
+
+
+@lru_cache(maxsize=4)
+def _build_precomputed_intraday_report_cached(
+    report_path_value: str,
+    report_mtime_ns: int,
+    report_size: int,
+    db_path_value: str,
+) -> dict[str, object]:
+    del report_mtime_ns, report_size
+    report_path = Path(report_path_value)
+    db_path = Path(db_path_value) if db_path_value else None
     market_dates = set(load_market_dates(db_path)) if db_path else set()
     with report_path.open("r", encoding="utf-8", newline="") as handle:
         rows = [
@@ -373,7 +392,6 @@ def build_precomputed_intraday_report(report_path: Path, db_path: Path | None = 
         bucket_summaries[bucket] = _summarize_intraday_rows(bucket_rows)
 
     symbols = sorted({str(row.get("symbol", "")).upper() for row in rows if row.get("symbol")})
-    total_bars = _count_intraday_bars(db_path) if db_path else 0
     data_mode = next((row.get("data_mode") for row in rows if row.get("data_mode")), "equity_signal_proxy_1m")
     latest_signal = max((str(row.get("signal_timestamp") or "") for row in rows), default="")
     earliest_signal = min((str(row.get("signal_timestamp") or "") for row in rows if row.get("signal_timestamp")), default="")
@@ -385,7 +403,7 @@ def build_precomputed_intraday_report(report_path: Path, db_path: Path | None = 
         "timeframe_sec": 60,
         "symbols": symbols,
         "symbols_scanned": len(symbols),
-        "total_bars": total_bars,
+        "total_bars": "not_counted_on_page_load",
         "instances": rows,
         "instances_total": len(rows),
         "instances_returned": len(rows),
