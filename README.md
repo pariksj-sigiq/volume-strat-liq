@@ -228,6 +228,7 @@ Historical research uses 1-minute candles because Upstox REST historical/intrada
 
 - `futures_1m` means the row came from an NSE F&O futures instrument.
 - `equity_signal_proxy_1m` means the row came from NSE cash equity and should be treated as signal research/proxy data, not futures execution data.
+- `options_1m` means the row came from an Upstox expired NSE F&O option contract.
 
 ### Fetch 1-minute data
 
@@ -244,6 +245,14 @@ npm run fetch:upstox:intraday -- --years 1 --mode futures --concurrency 8
 ```
 
 The futures command depends on what Upstox exposes for active contracts; a complete one-year continuous futures dataset still requires expired-contract minute coverage.
+
+To load ATM option candles for precomputed intraday signals:
+
+```bash
+node scripts/upstox_signal_options_backfill.mjs --from-date 2026-03-01 --to-date 2026-03-31 --concurrency 2
+```
+
+The option backfill first asks Upstox for the actual expired option expiries for each symbol and stores them in `option_expiries`; this avoids guessing stock-option expiries from calendar rules.
 
 ### Analyze one symbol from the API
 

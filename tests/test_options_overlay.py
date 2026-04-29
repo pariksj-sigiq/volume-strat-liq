@@ -60,6 +60,69 @@ class OptionsOverlayTest(unittest.TestCase):
         self.assertEqual(0, row["option_dte_calendar"])
         self.assertEqual(0, row["option_dte_trading"])
 
+    def test_option_probe_uses_cached_upstox_stock_expiry(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            db_path = Path(tmp_dir) / "options.db"
+            self._create_probe_db(db_path)
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.executescript(
+                    """
+                    CREATE TABLE option_expiries (
+                      symbol TEXT NOT NULL,
+                      underlying_key TEXT NOT NULL,
+                      expiry_date TEXT NOT NULL,
+                      source TEXT NOT NULL,
+                      updated_at TEXT NOT NULL,
+                      PRIMARY KEY (symbol, expiry_date)
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT INTO option_expiries (
+                      symbol, underlying_key, expiry_date, source, updated_at
+                    ) VALUES (
+                      'ICICIBANK', 'NSE_EQ|INE090A01021', '2026-03-30',
+                      'upstox_expired_expiries_v2', '2026-04-29T00:00:00Z'
+                    )
+                    """
+                )
+                conn.executemany(
+                    """
+                    INSERT INTO option_contracts (
+                      symbol, expiry_date, option_type, strike_price, instrument_key, trading_symbol,
+                      exchange, segment, lot_size, tick_size, underlying_key, underlying_type,
+                      underlying_symbol, weekly, source, is_active, updated_at
+                    ) VALUES (
+                      'ICICIBANK', '2026-03-30', ?, 1250, ?, ?, 'NSE', 'NSE_FO', 700, 0.05,
+                      'NSE_EQ|INE090A01021', 'EQUITY', 'ICICIBANK', 0, 'test', 0,
+                      '2026-04-29T00:00:00Z'
+                    )
+                    """,
+                    [
+                        ("CE", "ICICI_CE_1250", "ICICIBANK 1250 CE 30 MAR 26"),
+                        ("PE", "ICICI_PE_1250", "ICICIBANK 1250 PE 30 MAR 26"),
+                    ],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            payload = build_option_probe_payload(
+                db_path,
+                parse_qs(
+                    "symbol=ICICIBANK"
+                    "&signal_timestamp=2026-03-24T15:07:00%2B05:30"
+                    "&entry_timestamp=2026-03-24T15:08:00%2B05:30"
+                    "&underlying_entry_price=1252.7"
+                ),
+            )
+
+        self.assertEqual("2026-03-30", payload["option_expiry_date"])
+        self.assertEqual("missing_candles", payload["status"])
+        self.assertEqual({"CE", "PE"}, {leg["option_type"] for leg in payload["legs"]})
+
     def test_option_probe_selects_atm_call_and_put_and_calculates_returns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             db_path = Path(tmp_dir) / "options.db"

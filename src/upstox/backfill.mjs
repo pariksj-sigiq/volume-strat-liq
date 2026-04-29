@@ -508,6 +508,15 @@ export function createDb(dbPath) {
       PRIMARY KEY (symbol, expiry_date, option_type, strike_price)
     );
 
+    CREATE TABLE IF NOT EXISTS option_expiries (
+      symbol TEXT NOT NULL,
+      underlying_key TEXT NOT NULL,
+      expiry_date TEXT NOT NULL,
+      source TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, expiry_date)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_ohlcv_daily_symbol_date ON ohlcv_daily(symbol, date);
     CREATE INDEX IF NOT EXISTS idx_futures_contracts_symbol_expiry ON futures_contracts(symbol, expiry_date);
     CREATE INDEX IF NOT EXISTS idx_ohlcv_futures_symbol_date ON ohlcv_futures_daily(symbol, date);
@@ -517,6 +526,8 @@ export function createDb(dbPath) {
       ON ohlcv_intraday(data_mode, timeframe_sec, symbol, timestamp);
     CREATE INDEX IF NOT EXISTS idx_option_contracts_symbol_expiry
       ON option_contracts(symbol, expiry_date, option_type, strike_price);
+    CREATE INDEX IF NOT EXISTS idx_option_expiries_symbol_date
+      ON option_expiries(symbol, expiry_date);
   `);
 
   return db;

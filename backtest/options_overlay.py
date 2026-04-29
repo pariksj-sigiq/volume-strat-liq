@@ -52,6 +52,42 @@ def annotate_option_expiry(row: dict[str, Any], market_dates: Iterable[date | st
     return enriched
 
 
+def annotate_option_expiry_from_cache(
+    row: dict[str, Any],
+    option_expiries: dict[str, tuple[date, ...]],
+    market_dates: Iterable[date | str] | None = None,
+) -> dict[str, Any]:
+    signal_date = _as_date(row.get("signal_timestamp"))
+    symbol = str(row.get("symbol") or "").upper()
+    expiry = resolve_option_expiry(symbol, signal_date, option_expiries, market_dates)
+    enriched = dict(row)
+    enriched["option_expiry_date"] = expiry.expiry_date.isoformat()
+    enriched["is_option_expiry_day"] = expiry.is_expiry_day
+    enriched["option_dte_calendar"] = expiry.calendar_days_to_expiry
+    enriched["option_dte_trading"] = expiry.trading_sessions_to_expiry
+    return enriched
+
+
+def resolve_option_expiry(
+    symbol: str,
+    signal_date: date | datetime | str,
+    option_expiries: dict[str, tuple[date, ...]] | None = None,
+    market_dates: Iterable[date | str] | None = None,
+) -> OptionExpiryInfo:
+    signal = _as_date(signal_date)
+    cached_expiries = option_expiries.get(symbol.upper(), ()) if option_expiries else ()
+    for expiry_date in cached_expiries:
+        if expiry_date >= signal:
+            trading_dates = _market_date_set(market_dates)
+            return OptionExpiryInfo(
+                expiry_date=expiry_date,
+                is_expiry_day=expiry_date == signal,
+                calendar_days_to_expiry=(expiry_date - signal).days,
+                trading_sessions_to_expiry=_trading_sessions_to_expiry(signal, expiry_date, trading_dates),
+            )
+    return nearest_monthly_option_expiry(signal, market_dates)
+
+
 @lru_cache(maxsize=8)
 def load_market_dates(db_path: str | Path, *, data_mode: str = "equity_signal_proxy_1m") -> tuple[date, ...]:
     db_path = Path(db_path)
@@ -102,6 +138,30 @@ def load_market_dates(db_path: str | Path, *, data_mode: str = "equity_signal_pr
     return tuple(_as_date(row[0]) for row in rows)
 
 
+def load_option_expiries(db_path: str | Path) -> dict[str, tuple[date, ...]]:
+    db_path = Path(db_path)
+    if not db_path.is_file():
+        return {}
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT symbol, expiry_date
+            FROM option_expiries
+            ORDER BY symbol, expiry_date
+            """
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    finally:
+        conn.close()
+
+    by_symbol: dict[str, list[date]] = {}
+    for symbol, expiry_date in rows:
+        by_symbol.setdefault(str(symbol).upper(), []).append(_as_date(expiry_date))
+    return {symbol: tuple(values) for symbol, values in by_symbol.items()}
+
+
 def build_option_probe_payload(db_path: str | Path, query: dict[str, list[str]]) -> dict[str, Any]:
     symbol = _query_value(query, "symbol", "").upper()
     if not symbol:
@@ -116,7 +176,8 @@ def build_option_probe_payload(db_path: str | Path, query: dict[str, list[str]])
         raise ValueError("underlying_entry_price must be positive")
 
     market_dates = load_market_dates(db_path)
-    expiry = nearest_monthly_option_expiry(signal_timestamp, market_dates)
+    option_expiries = load_option_expiries(db_path)
+    expiry = resolve_option_expiry(symbol, signal_timestamp, option_expiries, market_dates)
     contract_rows = _load_option_contracts(db_path, symbol, expiry.expiry_date)
     if not contract_rows:
         return {
@@ -340,7 +401,10 @@ __all__ = [
     "OPTION_DATA_MODE",
     "OptionExpiryInfo",
     "annotate_option_expiry",
+    "annotate_option_expiry_from_cache",
     "build_option_probe_payload",
+    "load_option_expiries",
     "load_market_dates",
     "nearest_monthly_option_expiry",
+    "resolve_option_expiry",
 ]

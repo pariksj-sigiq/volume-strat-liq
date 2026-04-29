@@ -5,6 +5,7 @@ import process from "node:process";
 import Database from "better-sqlite3";
 
 const EXPIRED_OPTION_CONTRACT_URL = "https://api.upstox.com/v2/expired-instruments/option/contract";
+const EXPIRED_EXPIRIES_URL = "https://api.upstox.com/v2/expired-instruments/expiries";
 const EXPIRED_HISTORICAL_CANDLES_BASE_URL = "https://api.upstox.com/v2/expired-instruments/historical-candle";
 const OPTION_DATA_MODE = "options_1m";
 const PREFERRED_CALENDAR_SYMBOLS = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFOSYS", "SBIN", "ETERNAL"];
@@ -78,6 +79,17 @@ function ensureOptionSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_option_contracts_symbol_expiry
       ON option_contracts(symbol, expiry_date, option_type, strike_price);
+
+    CREATE TABLE IF NOT EXISTS option_expiries (
+      symbol TEXT NOT NULL,
+      underlying_key TEXT NOT NULL,
+      expiry_date TEXT NOT NULL,
+      source TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, expiry_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_option_expiries_symbol_date
+      ON option_expiries(symbol, expiry_date);
   `);
 }
 
@@ -137,6 +149,12 @@ function optionExpiryForSignal(signalTimestamp, marketDates = new Set()) {
   throw new Error(`Unable to resolve expiry for ${signalTimestamp}`);
 }
 
+function optionExpiryFromUpstoxExpiries(signalTimestamp, expiries = []) {
+  const signalDate = String(signalTimestamp).slice(0, 10);
+  const sorted = [...new Set(expiries.map(String).filter(Boolean))].sort();
+  return sorted.find((expiryDate) => expiryDate >= signalDate) ?? null;
+}
+
 function nominalMonthlyExpiry(year, zeroMonth) {
   const start = new Date(Date.UTC(year, zeroMonth, 1));
   const expiryWeekday = start >= new Date("2025-09-01T00:00:00Z") ? 2 : 4;
@@ -190,6 +208,13 @@ async function fetchExpiredOptionContracts(underlyingKey, expiryDate, token) {
   return payload?.data ?? [];
 }
 
+async function fetchExpiredExpiries(underlyingKey, token) {
+  const url = new URL(EXPIRED_EXPIRIES_URL);
+  url.searchParams.set("instrument_key", underlyingKey);
+  const payload = await fetchJson(url.toString(), token);
+  return payload?.data ?? [];
+}
+
 async function fetchExpiredOptionCandles(instrumentKey, token, fromDate, toDate) {
   const encodedKey = encodeURIComponent(instrumentKey);
   const url = `${EXPIRED_HISTORICAL_CANDLES_BASE_URL}/${encodedKey}/1minute/${toDate}/${fromDate}`;
@@ -238,6 +263,32 @@ function upsertOptionContracts(db, rows) {
   const now = new Date().toISOString();
   const transaction = db.transaction((items) => {
     for (const item of items) insert.run({ ...item, updatedAt: now });
+  });
+  transaction(rows);
+}
+
+function upsertOptionExpiries(db, symbol, underlyingKey, expiries) {
+  const insert = db.prepare(`
+    INSERT INTO option_expiries (
+      symbol, underlying_key, expiry_date, source, updated_at
+    ) VALUES (
+      @symbol, @underlyingKey, @expiryDate, @source, @updatedAt
+    )
+    ON CONFLICT(symbol, expiry_date) DO UPDATE SET
+      underlying_key = excluded.underlying_key,
+      source = excluded.source,
+      updated_at = excluded.updated_at
+  `);
+  const now = new Date().toISOString();
+  const rows = expiries.map((expiryDate) => ({
+    symbol,
+    underlyingKey,
+    expiryDate: String(expiryDate),
+    source: "upstox_expired_expiries_v2",
+    updatedAt: now,
+  }));
+  const transaction = db.transaction((items) => {
+    for (const item of items) insert.run(item);
   });
   transaction(rows);
 }
@@ -327,18 +378,35 @@ async function main() {
     : null;
   let signals = readCsv(reportPath);
   if (symbols) signals = signals.filter((row) => symbols.has(String(row.symbol).toUpperCase()));
+  if (args["from-date"]) {
+    const fromDate = String(args["from-date"]);
+    signals = signals.filter((row) => String(row.signal_timestamp).slice(0, 10) >= fromDate);
+  }
+  if (args["to-date"]) {
+    const toDate = String(args["to-date"]);
+    signals = signals.filter((row) => String(row.signal_timestamp).slice(0, 10) <= toDate);
+  }
   if (limitSignals > 0) signals = signals.slice(0, limitSignals);
 
   const chainCache = new Map();
+  const expiryCache = new Map();
   const optionWork = new Map();
   for (const signal of signals) {
     const symbol = String(signal.symbol).toUpperCase();
-    const expiryDate = optionExpiryForSignal(signal.signal_timestamp, marketDates);
     const underlyingKey = getUnderlyingKey(db, symbol);
     if (!underlyingKey) {
       console.warn(`Missing underlying instrument key for ${symbol}`);
       continue;
     }
+    if (!expiryCache.has(symbol)) {
+      const expiries = await fetchExpiredExpiries(underlyingKey, token);
+      upsertOptionExpiries(db, symbol, underlyingKey, expiries);
+      expiryCache.set(symbol, expiries);
+      console.log(`${symbol} -> ${expiries.length} Upstox option expiries`);
+    }
+    const expiryDate =
+      optionExpiryFromUpstoxExpiries(signal.signal_timestamp, expiryCache.get(symbol)) ??
+      optionExpiryForSignal(signal.signal_timestamp, marketDates);
     const chainKey = `${symbol}|${expiryDate}`;
     if (!chainCache.has(chainKey)) {
       const rawContracts = await fetchExpiredOptionContracts(underlyingKey, expiryDate, token);

@@ -26,8 +26,9 @@ from backtest.intraday_volume_spike import (
     run_intraday_bucketed_backtest,
 )
 from backtest.options_overlay import (
-    annotate_option_expiry,
+    annotate_option_expiry_from_cache,
     build_option_probe_payload,
+    load_option_expiries,
     load_market_dates,
 )
 
@@ -380,9 +381,10 @@ def _build_precomputed_intraday_report_cached(
     report_path = Path(report_path_value)
     db_path = Path(db_path_value) if db_path_value else None
     market_dates = set(load_market_dates(db_path)) if db_path else set()
+    option_expiries = load_option_expiries(db_path) if db_path else {}
     with report_path.open("r", encoding="utf-8", newline="") as handle:
         rows = [
-            annotate_option_expiry(_coerce_intraday_csv_row(row), market_dates)
+            annotate_option_expiry_from_cache(_coerce_intraday_csv_row(row), option_expiries, market_dates)
             for row in csv.DictReader(handle)
         ]
 

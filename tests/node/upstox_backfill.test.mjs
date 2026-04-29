@@ -140,6 +140,7 @@ test("createDb creates the ohlcv_intraday schema", () => {
   const columns = db.prepare("PRAGMA table_info(ohlcv_intraday)").all();
   const indexes = db.prepare("PRAGMA index_list(ohlcv_intraday)").all();
   const optionColumns = db.prepare("PRAGMA table_info(option_contracts)").all();
+  const optionExpiryColumns = db.prepare("PRAGMA table_info(option_expiries)").all();
 
   assert.deepEqual(
     columns.map((column) => column.name),
@@ -184,6 +185,16 @@ test("createDb creates the ohlcv_intraday schema", () => {
       "weekly",
       "source",
       "is_active",
+      "updated_at",
+    ],
+  );
+  assert.deepEqual(
+    optionExpiryColumns.map((column) => column.name),
+    [
+      "symbol",
+      "underlying_key",
+      "expiry_date",
+      "source",
       "updated_at",
     ],
   );
