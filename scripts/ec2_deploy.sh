@@ -3,7 +3,6 @@ set -euo pipefail
 
 SOURCE_DIR="${1:-}"
 APP_DIR="${APP_DIR:-/opt/liq-sweep}"
-BACKUP_DIR="${BACKUP_DIR:-/opt/liq-sweep-backups}"
 SERVICE_NAME="${SERVICE_NAME:-liq-sweep}"
 LOCK_FILE="${LOCK_FILE:-/tmp/liq-sweep-deploy.lock}"
 DB_PATH="${APP_DIR}/data/nse_data.db"
@@ -28,7 +27,7 @@ if [[ -f "${SOURCE_DIR}/data/nse_data.db" ]]; then
   exit 3
 fi
 
-mkdir -p "${APP_DIR}" "${APP_DIR}/data" "${BACKUP_DIR}"
+mkdir -p "${APP_DIR}" "${APP_DIR}/data"
 
 (
   flock -n 9 || {
@@ -36,20 +35,7 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data" "${BACKUP_DIR}"
     exit 4
   }
 
-  timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  backup_path="${BACKUP_DIR}/nse_data-${timestamp}.db"
-
-  echo "Backing up ${DB_PATH} to ${backup_path}"
-  if command -v sqlite3 >/dev/null 2>&1; then
-    sqlite3 "${DB_PATH}" "PRAGMA wal_checkpoint(FULL);"
-    sqlite3 "${DB_PATH}" ".backup '${backup_path}'"
-  else
-    cp -p "${DB_PATH}" "${backup_path}"
-  fi
-
-  test -s "${backup_path}"
-  gzip -f "${backup_path}"
-
+  echo "Data layer is external to deploys; preserving ${APP_DIR}/data"
   echo "Syncing application code into ${APP_DIR}"
   rsync -a --delete \
     --exclude ".git/" \
@@ -66,7 +52,7 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data" "${BACKUP_DIR}"
     "${SOURCE_DIR}/" "${APP_DIR}/"
 
   test -s "${DB_PATH}"
-  chown -R ec2-user:ec2-user "${APP_DIR}" "${BACKUP_DIR}"
+  chown -R ec2-user:ec2-user "${APP_DIR}"
 
   echo "Restarting ${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
@@ -85,12 +71,6 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data" "${BACKUP_DIR}"
     fi
     sleep 2
   done
-
-  echo "Pruning old backups, keeping the newest 10"
-  find "${BACKUP_DIR}" -maxdepth 1 -name "nse_data-*.db.gz" -type f -printf "%T@ %p\n" \
-    | sort -nr \
-    | awk 'NR > 10 {print $2}' \
-    | xargs -r rm -f
 
   echo "Deploy complete."
 ) 9>"${LOCK_FILE}"

@@ -174,6 +174,25 @@ The app currently supports:
 - contract expiry and lot-size display
 - per-lot rupee P&L display
 
+## EC2 Deployment
+
+Pushes to `main` deploy code to the ap-south-1 EC2 host through the repo-scoped self-hosted GitHub Actions runner.
+
+The production SQLite data layer is intentionally server-local:
+
+- live DB: `/opt/liq-sweep/data/nse_data.db`
+- backups: `/opt/liq-sweep-backups`
+- deploy script: `scripts/ec2_deploy.sh`
+- manual data backup script: `scripts/ec2_backup_data.sh`
+
+Normal deployments do not copy, overwrite, delete, or gzip the database. The deploy script syncs application code only, excludes `data/`, and refuses to deploy if the live DB is missing.
+
+When the data is intentionally refreshed or mutated, run a manual backup on the EC2 host:
+
+```bash
+sudo bash /opt/liq-sweep/scripts/ec2_backup_data.sh
+```
+
 ## Intraday Volume Spike Scalp
 
 This is a separate research lane for the ETERNAL-style move: quiet intraday tape, sudden abnormal volume, breakout, and quick continuation.
