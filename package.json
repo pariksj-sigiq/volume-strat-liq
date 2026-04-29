@@ -1,0 +1,17 @@
+{
+  "name": "liq-sweep",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "fetch:upstox": "node scripts/upstox_backfill.mjs",
+    "fetch:upstox:intraday": "node scripts/upstox_intraday_backfill.mjs",
+    "fetch:upstox:signal-options": "node scripts/upstox_signal_options_backfill.mjs",
+    "dashboard:serve": "python3 -m app.server"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "lightweight-charts": "^5.0.8"
+  }
+}

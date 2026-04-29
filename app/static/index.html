@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liquidity Sweep Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="app-aurora app-aurora-a"></div>
+    <div class="app-aurora app-aurora-b"></div>
+    <div class="app-shell">
+      <header class="topbar panel">
+        <div class="brand-copy">
+          <div class="eyebrow">Liquidity Sweep Lab</div>
+          <h1>Visual strategy workstation for NSE F&amp;O sweep setups</h1>
+          <p>
+            Choose a symbol, adjust the timeframe and trade rules, then inspect the strategy in two layers:
+            front-month stock-futures context first, exact trade anatomy second.
+          </p>
+        </div>
+        <div class="topbar-side">
+          <div class="status-card">
+            <div class="status-dot" id="healthDot"></div>
+            <div>
+              <div class="meta-label">Backend</div>
+              <div class="meta-value" id="healthText">Connecting…</div>
+            </div>
+          </div>
+          <div class="header-stats">
+            <div class="header-stat">
+              <span>Universe</span>
+              <strong id="universeCount">-</strong>
+            </div>
+            <div class="header-stat">
+              <span>Window</span>
+              <strong id="headerWindow">-</strong>
+            </div>
+          </div>
+          <div class="hero-note">
+            Strategy logic is visual first: scan the futures regime, inspect the signal, then validate exact trade structure.
+          </div>
+        </div>
+      </header>
+
+      <section class="orientation-panel panel" aria-labelledby="orientationTitle">
+        <div class="orientation-lead">
+          <div class="eyebrow">Read This First</div>
+          <h2 id="orientationTitle">What this run is showing</h2>
+          <p>
+            This screen backtests a long liquidity-sweep setup on the selected stock's continuous front-month futures series,
+            while NIFTY50 stays as the benchmark. Each triggered setup uses the prior red candle low as the fixed stop,
+            applies your entry offset from that stop anchor, and recalculates target distance from the visible <strong>1:R</strong> control.
+          </p>
+        </div>
+        <div class="orientation-grid">
+          <div class="orientation-block">
+            <h3>How to use it</h3>
+            <ol>
+              <li>Pick a stock, date window, reward ratio, entry offset, and walk-forward limit.</li>
+              <li>Run analysis, then scan the overview chart for where sweep signals appeared versus NIFTY50.</li>
+              <li>Click a trade card or ledger row to replay the candle-level setup with entry, stop, target, and exit bands.</li>
+            </ol>
+          </div>
+          <div class="orientation-block">
+            <h3>What the columns mean</h3>
+            <dl class="column-glossary">
+              <div><dt>Signal</dt><dd>date the sweep setup triggered</dd></div>
+              <div><dt>Exit</dt><dd>date target, stop, or timeout resolved</dd></div>
+              <div><dt>Expiry</dt><dd>front-month futures contract used</dd></div>
+              <div><dt>Outcome</dt><dd>target, stop, timeout, or ambiguous result</dd></div>
+              <div><dt>Entry / Stop / Target</dt><dd>trade levels calculated from the stop anchor and 1:R ratio</dd></div>
+              <div><dt>Return</dt><dd>percentage move from entry to realized exit</dd></div>
+              <div><dt>Net P&amp;L / Lot</dt><dd>rupee result after applying the contract lot size</dd></div>
+              <div><dt>Held</dt><dd>number of futures bars held</dd></div>
+              <div><dt>63D Spread</dt><dd>symbol's 63-day return minus NIFTY50's 63-day return at signal time</dd></div>
+            </dl>
+          </div>
+          <div class="orientation-block orientation-note">
+            <h3>Important context</h3>
+            <p>
+              The strategy instrument is stock futures, not cash equity. Coverage depends on what Upstox returned locally for each contract,
+              so a requested 5-year window can still have less than 5 years of actual futures history for some symbols.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <div class="page-grid">
+        <aside class="control-rail panel">
+          <section class="rail-section">
+            <div class="rail-title">
+              <div class="eyebrow">Controls</div>
+              <h2>Run the strategy</h2>
+            </div>
+            <div class="control-grid">
+              <div class="control-field control-field-full">
+                <label for="stockSearch">Stock name or symbol</label>
+                <input id="stockSearch" type="search" list="stockOptions" placeholder="Type RELIANCE, SBIN, INFOSYS..." autocomplete="off" />
+                <datalist id="stockOptions"></datalist>
+                <div class="field-note">Type the NSE symbol directly to pull its single-stock futures history and rerun the strategy.</div>
+                <select id="symbolSelect" hidden></select>
+              </div>
+              <div class="control-field">
+                <label for="fromDate">From</label>
+                <input id="fromDate" type="date" />
+              </div>
+              <div class="control-field">
+                <label for="toDate">To</label>
+                <input id="toDate" type="date" />
+              </div>
+              <div class="control-field">
+                <label for="riskReward">Target risk:reward</label>
+                <div class="ratio-input">
+                  <span class="ratio-static">1</span>
+                  <span class="ratio-divider">:</span>
+                  <input id="riskReward" type="text" inputmode="decimal" value="3" placeholder="3" aria-label="Reward side of the risk reward ratio" />
+                </div>
+                <div class="field-note">Type only the reward side. Example: enter <strong>3</strong> and the control reads as <strong>1:3</strong>.</div>
+                <div class="field-note">Signals are generated first. Targets are then recalculated from this ratio using the selected setup's actual stop distance.</div>
+                <div class="rr-preview" id="rrPreview">Selected trade preview will show the percent move above and below entry.</div>
+              </div>
+              <div class="control-field">
+                <label for="entryOffset">Entry Offset %</label>
+                <input id="entryOffset" type="number" step="0.05" value="0" />
+                <div class="field-note">Percent from the stop-loss anchor. Examples: <strong>0</strong>, <strong>0.5</strong>, <strong>1</strong>.</div>
+              </div>
+              <div class="control-field control-field-full">
+                <label for="walkForward">Walk Forward Bars</label>
+                <input id="walkForward" type="number" min="5" step="1" value="60" />
+              </div>
+            </div>
+            <div class="preset-label">Quick R:R</div>
+            <div class="preset-row rr-row" id="rrPresetRow">
+              <button class="preset-button" data-rr="1" type="button">1:1</button>
+              <button class="preset-button" data-rr="1.5" type="button">1:1.5</button>
+              <button class="preset-button" data-rr="2" type="button">1:2</button>
+              <button class="preset-button" data-rr="3" type="button">1:3</button>
+              <button class="preset-button" data-rr="5" type="button">1:5</button>
+            </div>
+            <div class="preset-label">Quick Windows</div>
+            <div class="preset-row" id="presetRow">
+              <button class="preset-button" data-preset="6m" type="button">6M</button>
+              <button class="preset-button" data-preset="1y" type="button">1Y</button>
+              <button class="preset-button" data-preset="3y" type="button">3Y</button>
+              <button class="preset-button" data-preset="5y" type="button">5Y</button>
+              <button class="preset-button" data-preset="10y" type="button">10Y</button>
+              <button class="preset-button" data-preset="max" type="button">Max</button>
+            </div>
+            <div class="toggle-stack">
+              <label class="toggle-card">
+                <input id="d1Red" type="checkbox" />
+                <span class="toggle-copy">
+                  <strong>D-1 red only</strong>
+                  <small>Require the prior candle to close red.</small>
+                </span>
+              </label>
+              <label class="toggle-card">
+                <input id="multiEntry" type="checkbox" />
+                <span class="toggle-copy">
+                  <strong>Allow overlap</strong>
+                  <small>Keep scanning even when another position is active.</small>
+                </span>
+              </label>
+            </div>
+            <button class="run-button" id="runButton">Run Full Analysis</button>
+          </section>
+
+          <section class="rail-section">
+            <div class="eyebrow">Run Summary</div>
+            <div class="summary-stack" id="summaryStack"></div>
+          </section>
+
+          <section class="rail-section">
+            <div class="eyebrow">Strategy Read</div>
+            <div class="story-panel" id="strategyRead"></div>
+          </section>
+
+          <section class="rail-section">
+            <div class="eyebrow">Outcome Mix</div>
+            <div class="outcome-bar" id="outcomeBar"></div>
+            <div class="mini-list" id="outcomeList"></div>
+          </section>
+
+          <section class="rail-section">
+            <div class="eyebrow">Yearly Pulse</div>
+            <div class="year-grid" id="yearGrid"></div>
+          </section>
+        </aside>
+
+        <main class="main-column">
+          <section class="command-banner panel">
+            <div class="banner-copy-block">
+              <div class="eyebrow">Current Run</div>
+              <h2 id="stageTitle">Loading symbol…</h2>
+              <p class="banner-copy" id="bannerCopy">
+                The overview chart shows normalized price context against NIFTY50. The review chart zooms into the selected setup so you can visually validate the entry, stop, target, and exit logic.
+              </p>
+              <div class="chip-row" id="summaryChips"></div>
+            </div>
+            <div class="run-snapshot" id="runSnapshot"></div>
+          </section>
+
+          <section class="overview-grid">
+            <div class="panel chart-panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">Overview</div>
+                  <h3>Timeframe context vs benchmark</h3>
+                </div>
+                <div class="panel-note">Normalized close indexed to 100, with signal markers across the selected window.</div>
+                <div class="panel-note">Price context uses the front-month continuous futures chain for the selected stock.</div>
+              </div>
+              <div class="chart-shell overview-shell">
+                <div id="overviewChart"></div>
+                <div class="chart-overlay" id="overviewOverlay">Running analysis…</div>
+              </div>
+              <div class="legend-row">
+                <span><i class="legend-dot legend-dot-symbol"></i> Selected symbol</span>
+                <span><i class="legend-dot legend-dot-benchmark"></i> NIFTY50 benchmark</span>
+                <span><i class="legend-dot legend-dot-signal"></i> Sweep trigger</span>
+              </div>
+            </div>
+
+            <div class="panel strip-panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">Trade Atlas</div>
+                  <h3>Every triggered setup in this run</h3>
+                </div>
+                <div class="panel-note">Click any card to jump straight into the detailed replay.</div>
+              </div>
+              <div class="trade-strip" id="tradeStrip"></div>
+            </div>
+          </section>
+
+          <section class="detail-grid">
+            <div class="panel detail-panel">
+              <div class="panel-heading">
+                <div>
+                  <div class="eyebrow">Trade Review</div>
+                  <h3 id="detailTitle">Select a trade</h3>
+                </div>
+                <div class="trade-nav">
+                  <button class="nav-button" id="prevTradeButton" type="button">Previous</button>
+                  <button class="nav-button" id="nextTradeButton" type="button">Next</button>
+                </div>
+              </div>
+              <div class="chart-shell detail-shell">
+                <div id="detailChart"></div>
+                <div class="chart-overlay" id="chartOverlay">Running analysis…</div>
+              </div>
+              <div class="trade-levels" id="selectedTradeLevels"></div>
+              <div class="detail-footnote">
+                Signal close, stop reference, D-1 sweep, and exit markers are plotted directly on the trade review chart. Entry is derived from the stop-loss anchor, while signal close, stop, target, and realized exit stay pinned as price bands for validation. Stops are evaluated from D+1 using future-bar lows rather than closes.
+              </div>
+            </div>
+
+            <aside class="panel rationale-panel">
+              <div class="eyebrow">Selected Setup</div>
+              <div class="story-panel" id="selectedTradePanel">Pick a trade from the strip or ledger below.</div>
+            </aside>
+          </section>
+
+          <section class="ledger-panel panel">
+            <div class="ledger-head">
+              <div>
+                <div class="eyebrow">Trade Explorer</div>
+                <h3>Search, sort, and audit every triggered setup</h3>
+              </div>
+              <div class="ledger-controls">
+                <input id="tradeSearch" type="search" placeholder="Search date, outcome, theme, or rationale" />
+                <select id="tradeOutcomeFilter">
+                  <option value="all">All outcomes</option>
+                  <option value="target">Targets</option>
+                  <option value="stop">Stops</option>
+                  <option value="timeout">Timeouts</option>
+                  <option value="ambiguous">Ambiguous</option>
+                </select>
+                <select id="tradeSort">
+                  <option value="latest">Newest first</option>
+                  <option value="earliest">Earliest first</option>
+                  <option value="best">Best return</option>
+                  <option value="worst">Worst return</option>
+                  <option value="strongest">Strongest 63D spread</option>
+                  <option value="longest">Longest hold</option>
+                </select>
+              </div>
+            </div>
+            <div class="ledger-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Signal</th>
+                    <th>Exit</th>
+                    <th>Expiry</th>
+                    <th>Outcome</th>
+                    <th>Entry</th>
+                    <th>Stop</th>
+                    <th>Target</th>
+                    <th>Return</th>
+                    <th>Net P&amp;L / Lot</th>
+                    <th>Held</th>
+                    <th>63D Spread</th>
+                  </tr>
+                </thead>
+                <tbody id="tradeTableBody">
+                  <tr><td colspan="11">Waiting for analysis…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script src="/vendor/lightweight-charts.js"></script>
+    <script type="module" src="/assets/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,373 @@
+import fs from "node:fs";
+import path from "node:path";
+import process from "node:process";
+
+import Database from "better-sqlite3";
+
+const EXPIRED_OPTION_CONTRACT_URL = "https://api.upstox.com/v2/expired-instruments/option/contract";
+const EXPIRED_HISTORICAL_CANDLES_BASE_URL = "https://api.upstox.com/v2/expired-instruments/historical-candle";
+const OPTION_DATA_MODE = "options_1m";
+const PREFERRED_CALENDAR_SYMBOLS = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFOSYS", "SBIN", "ETERNAL"];
+const REQUEST_HEADERS = {
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  "User-Agent": "Mozilla/5.0",
+};
+
+function parseCliArgs(argv = process.argv.slice(2)) {
+  const config = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const part = argv[index];
+    if (!part.startsWith("--")) continue;
+    const [flag, inlineValue] = part.split("=", 2);
+    const key = flag.slice(2);
+    const nextValue = inlineValue ?? argv[index + 1];
+    if (inlineValue === undefined && nextValue && !nextValue.startsWith("--")) {
+      config[key] = nextValue;
+      index += 1;
+    } else {
+      config[key] = inlineValue ?? true;
+    }
+  }
+  return config;
+}
+
+function loadEnvFile(cwd = process.cwd()) {
+  const envPath = path.join(cwd, ".env");
+  if (!fs.existsSync(envPath)) return;
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    if (!line || line.trim().startsWith("#")) continue;
+    const separatorIndex = line.indexOf("=");
+    if (separatorIndex === -1) continue;
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
+function readCsv(filePath) {
+  const [headerLine, ...lines] = fs.readFileSync(filePath, "utf8").trim().split(/\r?\n/);
+  const headers = headerLine.split(",");
+  return lines.filter(Boolean).map((line) => {
+    const values = line.split(",");
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
+function ensureOptionSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS option_contracts (
+      symbol TEXT NOT NULL,
+      expiry_date TEXT NOT NULL,
+      option_type TEXT NOT NULL,
+      strike_price REAL NOT NULL,
+      instrument_key TEXT NOT NULL UNIQUE,
+      trading_symbol TEXT NOT NULL,
+      exchange TEXT,
+      segment TEXT,
+      lot_size INTEGER NOT NULL,
+      tick_size REAL,
+      underlying_key TEXT,
+      underlying_type TEXT,
+      underlying_symbol TEXT NOT NULL,
+      weekly INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (symbol, expiry_date, option_type, strike_price)
+    );
+    CREATE INDEX IF NOT EXISTS idx_option_contracts_symbol_expiry
+      ON option_contracts(symbol, expiry_date, option_type, strike_price);
+  `);
+}
+
+function loadMarketDates(db) {
+  try {
+    for (const symbol of PREFERRED_CALENDAR_SYMBOLS) {
+      const rows = selectMarketDateRowsForSymbol(db, symbol);
+      if (rows.length) return new Set(rows.map((row) => row.date));
+    }
+    const rows = db
+      .prepare(
+        `
+        SELECT DISTINCT date
+        FROM ohlcv_intraday
+        WHERE data_mode = 'equity_signal_proxy_1m'
+        ORDER BY date
+        `,
+      )
+      .all();
+    return new Set(rows.map((row) => row.date));
+  } catch {
+    return new Set();
+  }
+}
+
+function selectMarketDateRowsForSymbol(db, symbol) {
+  const indexedSql = `
+    SELECT DISTINCT date
+    FROM ohlcv_intraday INDEXED BY idx_ohlcv_intraday_mode_symbol_time
+    WHERE data_mode = 'equity_signal_proxy_1m'
+      AND timeframe_sec = 60
+      AND symbol = ?
+    ORDER BY date
+  `;
+  const fallbackSql = `
+    SELECT DISTINCT date
+    FROM ohlcv_intraday
+    WHERE data_mode = 'equity_signal_proxy_1m'
+      AND timeframe_sec = 60
+      AND symbol = ?
+    ORDER BY date
+  `;
+  try {
+    return db.prepare(indexedSql).all(symbol);
+  } catch {
+    return db.prepare(fallbackSql).all(symbol);
+  }
+}
+
+function optionExpiryForSignal(signalTimestamp, marketDates = new Set()) {
+  const signal = new Date(`${String(signalTimestamp).slice(0, 10)}T00:00:00Z`);
+  for (let monthOffset = 0; monthOffset < 4; monthOffset += 1) {
+    const probe = new Date(Date.UTC(signal.getUTCFullYear(), signal.getUTCMonth() + monthOffset, 1));
+    const expiry = adjustToPreviousMarketDate(nominalMonthlyExpiry(probe.getUTCFullYear(), probe.getUTCMonth()), marketDates);
+    if (expiry >= signal) return isoDate(expiry);
+  }
+  throw new Error(`Unable to resolve expiry for ${signalTimestamp}`);
+}
+
+function nominalMonthlyExpiry(year, zeroMonth) {
+  const start = new Date(Date.UTC(year, zeroMonth, 1));
+  const expiryWeekday = start >= new Date("2025-09-01T00:00:00Z") ? 2 : 4;
+  const cursor = new Date(Date.UTC(year, zeroMonth + 1, 0));
+  while (cursor.getUTCDay() !== expiryWeekday) {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return cursor;
+}
+
+function adjustToPreviousMarketDate(expiry, marketDates) {
+  if (!marketDates.size) return expiry;
+  const orderedDates = [...marketDates].sort();
+  if (isoDate(expiry) < orderedDates[0] || isoDate(expiry) > orderedDates[orderedDates.length - 1]) {
+    return expiry;
+  }
+  const cursor = new Date(expiry);
+  const month = cursor.getUTCMonth();
+  while (cursor.getUTCMonth() === month && !marketDates.has(isoDate(cursor))) {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return cursor;
+}
+
+function isoDate(value) {
+  return value.toISOString().slice(0, 10);
+}
+
+function getUnderlyingKey(db, symbol) {
+  const row = db.prepare("SELECT instrument_key FROM instruments WHERE symbol = ?").get(symbol);
+  return row?.instrument_key ?? null;
+}
+
+async function fetchJson(url, token) {
+  const response = await fetch(url, {
+    headers: { ...REQUEST_HEADERS, Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status} for ${url}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.json();
+}
+
+async function fetchExpiredOptionContracts(underlyingKey, expiryDate, token) {
+  const url = new URL(EXPIRED_OPTION_CONTRACT_URL);
+  url.searchParams.set("instrument_key", underlyingKey);
+  url.searchParams.set("expiry_date", expiryDate);
+  const payload = await fetchJson(url.toString(), token);
+  return payload?.data ?? [];
+}
+
+async function fetchExpiredOptionCandles(instrumentKey, token, fromDate, toDate) {
+  const encodedKey = encodeURIComponent(instrumentKey);
+  const url = `${EXPIRED_HISTORICAL_CANDLES_BASE_URL}/${encodedKey}/1minute/${toDate}/${fromDate}`;
+  const payload = await fetchJson(url, token);
+  return payload?.data?.candles ?? [];
+}
+
+function normalizeOptionContract(symbol, expiryDate, row) {
+  return {
+    symbol,
+    expiryDate,
+    optionType: row.instrument_type,
+    strikePrice: Number(row.strike_price),
+    instrumentKey: row.instrument_key,
+    tradingSymbol: row.trading_symbol,
+    exchange: row.exchange ?? "NSE",
+    segment: row.segment ?? "NSE_FO",
+    lotSize: Number(row.lot_size ?? row.minimum_lot ?? 1),
+    tickSize: Number(row.tick_size ?? 0),
+    underlyingKey: row.underlying_key ?? null,
+    underlyingType: row.underlying_type ?? "EQUITY",
+    underlyingSymbol: row.underlying_symbol ?? symbol,
+    weekly: row.weekly ? 1 : 0,
+    source: "upstox_expired_option_v2",
+    isActive: 0,
+  };
+}
+
+function upsertOptionContracts(db, rows) {
+  const insert = db.prepare(`
+    INSERT INTO option_contracts (
+      symbol, expiry_date, option_type, strike_price, instrument_key, trading_symbol, exchange, segment,
+      lot_size, tick_size, underlying_key, underlying_type, underlying_symbol, weekly, source, is_active, updated_at
+    ) VALUES (
+      @symbol, @expiryDate, @optionType, @strikePrice, @instrumentKey, @tradingSymbol, @exchange, @segment,
+      @lotSize, @tickSize, @underlyingKey, @underlyingType, @underlyingSymbol, @weekly, @source, @isActive, @updatedAt
+    )
+    ON CONFLICT(symbol, expiry_date, option_type, strike_price) DO UPDATE SET
+      instrument_key = excluded.instrument_key,
+      trading_symbol = excluded.trading_symbol,
+      lot_size = excluded.lot_size,
+      tick_size = excluded.tick_size,
+      source = excluded.source,
+      updated_at = excluded.updated_at
+  `);
+  const now = new Date().toISOString();
+  const transaction = db.transaction((items) => {
+    for (const item of items) insert.run({ ...item, updatedAt: now });
+  });
+  transaction(rows);
+}
+
+function nearestAtmContracts(contracts, underlyingPrice) {
+  const legs = [];
+  for (const optionType of ["CE", "PE"]) {
+    const candidates = contracts.filter((contract) => contract.optionType === optionType);
+    if (!candidates.length) continue;
+    candidates.sort((left, right) =>
+      Math.abs(left.strikePrice - underlyingPrice) - Math.abs(right.strikePrice - underlyingPrice) ||
+      left.strikePrice - right.strikePrice,
+    );
+    legs.push(candidates[0]);
+  }
+  return legs;
+}
+
+function writeOptionCandles(db, contract, candles) {
+  const insert = db.prepare(`
+    INSERT INTO ohlcv_intraday (
+      symbol, timestamp, date, timeframe_sec, open, high, low, close, volume, open_interest,
+      instrument_key, trading_symbol, market_segment, instrument_type, contract_expiry, lot_size, source, data_mode
+    ) VALUES (
+      @symbol, @timestamp, @date, 60, @open, @high, @low, @close, @volume, @openInterest,
+      @instrumentKey, @tradingSymbol, 'NSE_FO', @optionType, @expiryDate, @lotSize, @source, @dataMode
+    )
+    ON CONFLICT(instrument_key, timestamp, timeframe_sec, data_mode) DO UPDATE SET
+      open = excluded.open,
+      high = excluded.high,
+      low = excluded.low,
+      close = excluded.close,
+      volume = excluded.volume,
+      open_interest = excluded.open_interest,
+      trading_symbol = excluded.trading_symbol,
+      source = excluded.source
+  `);
+  const rows = candles.map(([timestamp, open, high, low, close, volume, openInterest]) => ({
+    symbol: contract.symbol,
+    timestamp: String(timestamp),
+    date: String(timestamp).slice(0, 10),
+    open: Number(open),
+    high: Number(high),
+    low: Number(low),
+    close: Number(close),
+    volume: Number(volume ?? 0),
+    openInterest: Number(openInterest ?? 0),
+    instrumentKey: contract.instrumentKey,
+    tradingSymbol: contract.tradingSymbol,
+    optionType: contract.optionType,
+    expiryDate: contract.expiryDate,
+    lotSize: contract.lotSize,
+    source: "upstox_expired_option_v2",
+    dataMode: OPTION_DATA_MODE,
+  }));
+  const transaction = db.transaction((items) => {
+    for (const item of items) insert.run(item);
+  });
+  transaction(rows);
+  return rows.length;
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+}
+
+async function main() {
+  loadEnvFile();
+  const args = parseCliArgs();
+  const token = args.token ?? process.env.UPSTOX_ACCESS_TOKEN;
+  if (!token) throw new Error("Missing UPSTOX_ACCESS_TOKEN. Set it in .env or pass --token.");
+  const db = new Database(path.resolve(args.db ?? "data/nse_data.db"));
+  ensureOptionSchema(db);
+  const marketDates = loadMarketDates(db);
+  const reportPath = path.resolve(args.report ?? "reports/intraday-volume-spike-bucketed-all.csv");
+  const limitSignals = Number(args["limit-signals"] ?? 200);
+  const symbols = args.symbols
+    ? new Set(String(args.symbols).split(/[,\s]+/).map((item) => item.trim().toUpperCase()).filter(Boolean))
+    : null;
+  let signals = readCsv(reportPath);
+  if (symbols) signals = signals.filter((row) => symbols.has(String(row.symbol).toUpperCase()));
+  if (limitSignals > 0) signals = signals.slice(0, limitSignals);
+
+  const chainCache = new Map();
+  const optionWork = new Map();
+  for (const signal of signals) {
+    const symbol = String(signal.symbol).toUpperCase();
+    const expiryDate = optionExpiryForSignal(signal.signal_timestamp, marketDates);
+    const underlyingKey = getUnderlyingKey(db, symbol);
+    if (!underlyingKey) {
+      console.warn(`Missing underlying instrument key for ${symbol}`);
+      continue;
+    }
+    const chainKey = `${symbol}|${expiryDate}`;
+    if (!chainCache.has(chainKey)) {
+      const rawContracts = await fetchExpiredOptionContracts(underlyingKey, expiryDate, token);
+      const contracts = rawContracts
+        .map((row) => normalizeOptionContract(symbol, expiryDate, row))
+        .filter((row) => ["CE", "PE"].includes(row.optionType));
+      upsertOptionContracts(db, contracts);
+      chainCache.set(chainKey, contracts);
+      console.log(`${chainKey} -> ${contracts.length} contracts`);
+    }
+    const contracts = chainCache.get(chainKey);
+    for (const contract of nearestAtmContracts(contracts, Number(signal.entry_price))) {
+      const fromDate = String(signal.entry_timestamp).slice(0, 10);
+      const toDate = String(signal.exit_timestamp || signal.entry_timestamp).slice(0, 10);
+      optionWork.set(`${contract.instrumentKey}|${fromDate}|${toDate}`, { contract, fromDate, toDate });
+    }
+  }
+
+  const work = [...optionWork.values()];
+  console.log(`Fetching ${work.length} unique ATM option candle windows from ${signals.length} signals.`);
+  await mapWithConcurrency(work, Number(args.concurrency ?? 2), async ({ contract, fromDate, toDate }, index) => {
+    const candles = await fetchExpiredOptionCandles(contract.instrumentKey, token, fromDate, toDate);
+    const rows = writeOptionCandles(db, contract, candles);
+    console.log(`[${index + 1}/${work.length}] ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${rows} candles`);
+  });
+  db.close();
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack : error);
+  process.exitCode = 1;
+});

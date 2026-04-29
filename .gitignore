@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+node_modules/
+data/*.db
+data/*.db-*
+data/raw/
+reports/
+artifacts/
+__pycache__/
+*.py[cod]
+.pytest_cache/

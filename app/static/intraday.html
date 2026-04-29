@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Intraday Spike Lab</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body class="intraday-page">
+    <div class="app-shell intraday-shell">
+      <header class="intraday-header panel">
+        <div>
+          <div class="eyebrow">Intraday Spike Lab</div>
+          <h1>Volume-spike research board</h1>
+          <p>
+            Scan the ETERNAL-style pattern across downloaded 1-minute history, compare same-day,
+            next-morning, and two-day buckets, then drill into any symbol replay.
+          </p>
+        </div>
+        <div class="intraday-status">
+          <span id="intradayStatusDot" class="status-dot"></span>
+          <span id="intradayStatus">Ready</span>
+        </div>
+      </header>
+
+      <main class="intraday-workbench">
+        <aside class="intraday-controls panel">
+          <div class="rail-title">
+            <div class="eyebrow">Analysis Filters</div>
+            <h2>Instance board</h2>
+          </div>
+          <div class="loaded-report-card">
+            <span>Source</span>
+            <strong id="reportSourceLabel">Loading full report</strong>
+          </div>
+          <label>
+            Report set
+            <select id="reportMode">
+              <option value="raw">Raw candidates</option>
+              <option value="follow">+1R follow-through</option>
+            </select>
+          </label>
+          <div class="quick-presets" aria-label="Quick filters">
+            <button type="button" data-preset="winners">+1R winners</button>
+            <button type="button" data-preset="losses">Stops</button>
+            <button type="button" data-preset="overnight">Overnight</button>
+            <button type="button" data-preset="eternal">ETERNAL</button>
+          </div>
+          <label>
+            Search
+            <input id="instanceSearch" type="search" placeholder="Symbol, bucket, date, outcome" />
+          </label>
+          <label>
+            Symbol
+            <select id="symbolFilter">
+              <option value="all">All symbols</option>
+            </select>
+          </label>
+          <div class="intraday-control-pair">
+            <label>
+              From
+              <input id="dateFromFilter" type="date" />
+            </label>
+            <label>
+              To
+              <input id="dateToFilter" type="date" />
+            </label>
+          </div>
+          <div class="intraday-control-pair">
+            <label>
+              Bucket
+              <select id="bucketFilter">
+                <option value="all">All buckets</option>
+                <option value="same_day">Same day</option>
+                <option value="next_morning_entry">Next morning</option>
+                <option value="two_day_hold">Two day</option>
+              </select>
+            </label>
+            <label>
+              Outcome
+              <select id="outcomeFilter">
+                <option value="all">All outcomes</option>
+              </select>
+            </label>
+          </div>
+          <div class="intraday-control-pair">
+            <label>
+              Min realized R
+              <input id="minRrFilter" type="number" step="0.25" placeholder="Any" />
+            </label>
+            <label>
+              Min volume x
+              <input id="minVolumeFilter" type="number" step="0.25" placeholder="Any" />
+            </label>
+          </div>
+          <label>
+            Min turnover
+            <input id="minTurnoverFilter" type="number" step="1000000" placeholder="Any" />
+          </label>
+          <button id="resetFilters" class="ghost-button" type="button">Reset Filters</button>
+          <div class="risk-note">
+            <span>R</span>
+            <p>1R is the distance from entry to stop. +1.5R means the trade made 1.5x its initial risk.</p>
+          </div>
+        </aside>
+
+        <section class="intraday-results">
+          <div class="intraday-kpis" id="intradayKpis"></div>
+          <div class="visible-insights" id="visibleInsights"></div>
+          <div class="intraday-main panel">
+            <div class="intraday-toolbar">
+              <div>
+                <div class="eyebrow">Mined Instances</div>
+                <h2 id="intradayResultTitle">No report yet</h2>
+              </div>
+              <div class="ledger-controls">
+                <span id="filteredCount" class="filtered-count">0 visible</span>
+              </div>
+            </div>
+            <div class="bucket-tabs" id="bucketTabs"></div>
+            <div class="instance-layout">
+              <div class="ledger-wrap intraday-ledger">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Bucket</th>
+                      <th>Symbol</th>
+                      <th>Signal</th>
+                      <th>Expiry</th>
+                      <th>Exit</th>
+                      <th>Outcome</th>
+                      <th>R</th>
+                      <th>MFE</th>
+                      <th>Vol x</th>
+                      <th>Turnover</th>
+                    </tr>
+                  </thead>
+                  <tbody id="instanceTableBody">
+                    <tr><td colspan="10">Loading the full mined report...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <aside class="instance-detail" id="instanceDetail">
+                <div class="eyebrow">Selected Instance</div>
+                <p>Select a row to inspect the trade structure and replay link.</p>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/assets/intraday_report.js"></script>
+  </body>
+</html>
