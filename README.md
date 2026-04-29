@@ -184,8 +184,10 @@ The production SQLite data layer is intentionally server-local:
 - backups: `/opt/liq-sweep-backups`
 - deploy script: `scripts/ec2_deploy.sh`
 - manual data backup script: `scripts/ec2_backup_data.sh`
+- Nginx proxy config: `infra/nginx/liq-sweep.conf`
 
 Normal deployments do not copy, overwrite, delete, or gzip the database. The deploy script syncs application code only, excludes `data/`, and refuses to deploy if the live DB is missing.
+Nginx gzip is enabled for JSON, JS, and CSS so the large intraday report payload is sent compressed.
 
 When the data is intentionally refreshed or mutated, run a manual backup on the EC2 host:
 
