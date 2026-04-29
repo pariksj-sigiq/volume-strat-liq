@@ -377,6 +377,22 @@ function writeOptionCandles(db, contract, candles) {
   return rows.length;
 }
 
+function optionWindowAlreadyCached(db, instrumentKey, fromDate, toDate) {
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(*) AS rows
+      FROM ohlcv_intraday
+      WHERE instrument_key = ?
+        AND data_mode = ?
+        AND date >= ?
+        AND date <= ?
+      `,
+    )
+    .get(instrumentKey, OPTION_DATA_MODE, fromDate, toDate);
+  return Number(row?.rows ?? 0) > 0;
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   let cursor = 0;
   const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
@@ -400,6 +416,7 @@ async function main() {
   const reportPath = path.resolve(args.report ?? "reports/intraday-volume-spike-bucketed-all.csv");
   const limitSignals = Number(args["limit-signals"] ?? 200);
   const requestDelayMs = Number(args["request-delay-ms"] ?? 150);
+  const refresh = args.refresh === true || String(args.refresh ?? "").toLowerCase() === "true";
   const symbols = args.symbols
     ? new Set(String(args.symbols).split(/[,\s]+/).map((item) => item.trim().toUpperCase()).filter(Boolean))
     : null;
@@ -418,6 +435,7 @@ async function main() {
   const chainCache = new Map();
   const expiryCache = new Map();
   const optionWork = new Map();
+  let cachedWindows = 0;
   for (const signal of signals) {
     const symbol = String(signal.symbol).toUpperCase();
     const underlyingKey = getUnderlyingKey(db, symbol);
@@ -448,12 +466,16 @@ async function main() {
     for (const contract of nearestAtmContracts(contracts, Number(signal.entry_price))) {
       const fromDate = String(signal.entry_timestamp).slice(0, 10);
       const toDate = String(signal.exit_timestamp || signal.entry_timestamp).slice(0, 10);
+      if (!refresh && optionWindowAlreadyCached(db, contract.instrumentKey, fromDate, toDate)) {
+        cachedWindows += 1;
+        continue;
+      }
       optionWork.set(`${contract.instrumentKey}|${fromDate}|${toDate}`, { contract, fromDate, toDate });
     }
   }
 
   const work = [...optionWork.values()];
-  console.log(`Fetching ${work.length} unique ATM option candle windows from ${signals.length} signals.`);
+  console.log(`Fetching ${work.length} unique ATM option candle windows from ${signals.length} signals (${cachedWindows} cached windows skipped).`);
   await mapWithConcurrency(work, Number(args.concurrency ?? 2), async ({ contract, fromDate, toDate }, index) => {
     const candles = await fetchExpiredOptionCandles(contract.instrumentKey, token, fromDate, toDate);
     const rows = writeOptionCandles(db, contract, candles);
