@@ -72,9 +72,19 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data" "${BACKUP_DIR}"
   systemctl restart "${SERVICE_NAME}"
 
   echo "Checking service and HTTP health"
-  systemctl is-active --quiet "${SERVICE_NAME}"
-  curl -fsS --max-time 20 http://127.0.0.1:8877/api/health >/dev/null
-  curl -fsS --max-time 90 http://127.0.0.1:8877/api/meta >/dev/null
+  for attempt in {1..20}; do
+    if systemctl is-active --quiet "${SERVICE_NAME}" \
+      && curl -fsS --max-time 20 http://127.0.0.1:8877/api/health >/dev/null \
+      && curl -fsS --max-time 90 http://127.0.0.1:8877/api/meta >/dev/null; then
+      break
+    fi
+    if [[ "${attempt}" == "20" ]]; then
+      systemctl --no-pager --full status "${SERVICE_NAME}" || true
+      journalctl -u "${SERVICE_NAME}" -n 80 --no-pager || true
+      exit 7
+    fi
+    sleep 2
+  done
 
   echo "Pruning old backups, keeping the newest 10"
   find "${BACKUP_DIR}" -maxdepth 1 -name "nse_data-*.db.gz" -type f -printf "%T@ %p\n" \
