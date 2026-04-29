@@ -188,16 +188,42 @@ function getUnderlyingKey(db, symbol) {
   return row?.instrument_key ?? null;
 }
 
-async function fetchJson(url, token) {
-  const response = await fetch(url, {
-    headers: { ...REQUEST_HEADERS, Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) {
-    const error = new Error(`HTTP ${response.status} for ${url}`);
-    error.status = response.status;
-    throw error;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchJson(url, token, options = {}) {
+  const maxAttempts = Number(options.maxAttempts ?? 6);
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetch(url, {
+        headers: { ...REQUEST_HEADERS, Authorization: `Bearer ${token}` },
+      });
+    } catch (error) {
+      if (attempt >= maxAttempts) throw error;
+      await sleep(Math.min(30_000, 1_000 * 2 ** (attempt - 1)));
+      continue;
+    }
+    if (response.ok) return response.json();
+    if (response.status !== 429 && response.status < 500) {
+      const error = new Error(`HTTP ${response.status} for ${url}`);
+      error.status = response.status;
+      throw error;
+    }
+    if (attempt >= maxAttempts) {
+      const error = new Error(`HTTP ${response.status} for ${url}`);
+      error.status = response.status;
+      throw error;
+    }
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const delayMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(30_000, 1_000 * 2 ** (attempt - 1));
+    console.warn(`Retrying HTTP ${response.status} in ${Math.round(delayMs / 1000)}s: ${url}`);
+    await sleep(delayMs);
   }
-  return response.json();
+  throw new Error(`Unable to fetch ${url}`);
 }
 
 async function fetchExpiredOptionContracts(underlyingKey, expiryDate, token) {
