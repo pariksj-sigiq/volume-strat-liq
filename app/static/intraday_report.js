@@ -502,6 +502,203 @@ function optionDteText(row) {
   return '-';
 }
 
+function renderDayReview() {
+  const rows = filteredInstances();
+  const dayRows = rows.filter((row) => signalDate(row) === state.selectedDateKey);
+  const current = selectedRow() || dayRows[0] || null;
+  if (!current || !dayRows.length) {
+    nodes.dayReviewTitle.textContent = 'No signal date selected';
+    nodes.dayReviewMeta.textContent = 'Adjust filters to restore the date review.';
+    nodes.dayChartTitle.textContent = 'No chart loaded';
+    nodes.daySignals.innerHTML = '';
+    clearDayChart('No candles to display.');
+    return;
+  }
+
+  const summary = summarizeRows(dayRows);
+  const symbols = new Set(dayRows.map((row) => row.symbol).filter(Boolean));
+  nodes.dayReviewTitle.textContent = `${formatShortDate(state.selectedDateKey)} · ${formatCount(dayRows.length)} signals`;
+  nodes.dayReviewMeta.textContent = `${formatCount(symbols.size)} symbols · best ${formatR(summary.best_rr)} · avg volume ${formatNumber(summary.avg_volume_multiple, 1)}x`;
+  nodes.dayChartTitle.textContent = `${current.symbol} · ${state.selectedDateKey}`;
+  renderDaySignalStrip(dayRows, rows);
+  loadDayChart(current, dayRows);
+}
+
+function renderDaySignalStrip(dayRows, allRows) {
+  nodes.daySignals.innerHTML = dayRows.map((row) => {
+    const absoluteIndex = allRows.findIndex((candidate) =>
+      candidate.symbol === row.symbol &&
+      candidate.signal_timestamp === row.signal_timestamp &&
+      candidate.bucket === row.bucket
+    );
+    const selected = absoluteIndex === state.selectedIndex;
+    return `
+      <button class="day-signal ${selected ? 'active' : ''}" type="button" data-index="${absoluteIndex}">
+        <span>${escapeHtml(row.symbol)}</span>
+        <strong class="${Number(row.rr || 0) >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatR(row.rr))}</strong>
+        <em>${escapeHtml(formatTime(row.signal_timestamp))} · ${escapeHtml(formatNumber(row.volume_multiple, 1))}x</em>
+      </button>
+    `;
+  }).join('');
+  nodes.daySignals.querySelectorAll('button[data-index]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedIndex = Number(button.dataset.index || 0);
+      render();
+    });
+  });
+}
+
+function formatTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(11, 16);
+  return new Intl.DateTimeFormat('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+async function loadDayChart(row, dayRows) {
+  const requestId = state.dayRequestId + 1;
+  state.dayRequestId = requestId;
+  nodes.dayChartStatus.textContent = `Loading ${row.symbol} candles...`;
+  nodes.dayChartStatus.classList.remove('hidden');
+  const params = new URLSearchParams({
+    symbol: row.symbol,
+    date: signalDate(row),
+    data_mode: row.data_mode || state.payload?.data_mode || 'equity_signal_proxy_1m',
+  });
+  try {
+    const response = await fetch(`/api/intraday/day?${params.toString()}`);
+    const payload = await response.json();
+    if (requestId !== state.dayRequestId) return;
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    drawDayChart(payload, dayRows, row);
+  } catch (error) {
+    if (requestId !== state.dayRequestId) return;
+    clearDayChart(error.message || String(error));
+  }
+}
+
+function ensureDayChart() {
+  if (state.dayChart || !window.LightweightCharts || !nodes.dayChart) return;
+  state.dayChart = LightweightCharts.createChart(nodes.dayChart, {
+    autoSize: true,
+    layout: {
+      background: { type: 'solid', color: '#0b0e11' },
+      textColor: '#c0c6d5',
+      fontFamily: 'Inter, system-ui, sans-serif',
+    },
+    grid: {
+      vertLines: { color: 'rgba(138, 145, 159, 0.09)' },
+      horzLines: { color: 'rgba(138, 145, 159, 0.09)' },
+    },
+    rightPriceScale: {
+      borderColor: '#414753',
+      scaleMargins: { top: 0.08, bottom: 0.26 },
+    },
+    timeScale: {
+      borderColor: '#414753',
+      timeVisible: true,
+      secondsVisible: false,
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+    },
+  });
+  state.daySeries.candles = state.dayChart.addSeries(LightweightCharts.CandlestickSeries, {
+    upColor: '#00f59b',
+    downColor: '#ff5352',
+    borderUpColor: '#00f59b',
+    borderDownColor: '#ff5352',
+    wickUpColor: '#00f59b',
+    wickDownColor: '#ff5352',
+  });
+  state.daySeries.volume = state.dayChart.addSeries(LightweightCharts.HistogramSeries, {
+    priceFormat: { type: 'volume' },
+    priceScaleId: '',
+    color: 'rgba(46, 144, 255, 0.36)',
+  });
+  state.dayChart.priceScale('').applyOptions({
+    scaleMargins: { top: 0.78, bottom: 0 },
+  });
+}
+
+function drawDayChart(payload, dayRows, selected) {
+  ensureDayChart();
+  if (!state.dayChart || !state.daySeries.candles || !state.daySeries.volume) {
+    nodes.dayChartStatus.textContent = 'Chart library unavailable.';
+    return;
+  }
+  const bars = (payload.bars || []).map((bar) => ({
+    time: Math.floor(new Date(bar.timestamp).getTime() / 1000),
+    open: Number(bar.open),
+    high: Number(bar.high),
+    low: Number(bar.low),
+    close: Number(bar.close),
+    volume: Number(bar.volume || 0),
+  })).filter((bar) => Number.isFinite(bar.time));
+  if (!bars.length) {
+    clearDayChart(`No ${payload.symbol} candles cached for ${payload.date}.`);
+    return;
+  }
+  state.daySeries.candles.setData(bars.map(({ time, open, high, low, close }) => ({ time, open, high, low, close })));
+  state.daySeries.volume.setData(bars.map((bar) => ({
+    time: bar.time,
+    value: bar.volume,
+    color: bar.close >= bar.open ? 'rgba(0, 245, 155, 0.34)' : 'rgba(255, 83, 82, 0.34)',
+  })));
+  renderChartMarkers(dayRows, payload.symbol);
+  renderTradePriceLines(selected);
+  state.dayChart.timeScale().fitContent();
+  nodes.dayChartStatus.classList.add('hidden');
+}
+
+function renderChartMarkers(dayRows, symbol) {
+  if (!state.daySeries.candles || !LightweightCharts.createSeriesMarkers) return;
+  const markers = dayRows
+    .filter((row) => row.symbol === symbol)
+    .map((row) => ({
+      time: Math.floor(new Date(row.signal_timestamp).getTime() / 1000),
+      position: 'aboveBar',
+      color: '#2e90ff',
+      shape: 'arrowDown',
+      text: `${formatR(row.rr)} · ${formatNumber(row.volume_multiple, 1)}x`,
+    }));
+  LightweightCharts.createSeriesMarkers(state.daySeries.candles, markers);
+}
+
+function renderTradePriceLines(row) {
+  if (!state.daySeries.candles) return;
+  state.dayPriceLines.forEach((line) => state.daySeries.candles.removePriceLine(line));
+  state.dayPriceLines = [];
+  [
+    ['Entry', row.entry_price, '#a7c8ff'],
+    ['Stop', row.stop_loss, '#ff5352'],
+    ['Target', row.target_price, '#00f59b'],
+  ].forEach(([title, price, color]) => {
+    const value = Number(price);
+    if (!Number.isFinite(value)) return;
+    state.dayPriceLines.push(state.daySeries.candles.createPriceLine({
+      price: value,
+      color,
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title,
+    }));
+  });
+}
+
+function clearDayChart(message) {
+  ensureDayChart();
+  if (state.daySeries.candles) state.daySeries.candles.setData([]);
+  if (state.daySeries.volume) state.daySeries.volume.setData([]);
+  nodes.dayChartStatus.textContent = message;
+  nodes.dayChartStatus.classList.remove('hidden');
+}
+
 function renderDetail(row) {
   state.optionProbeRequestId += 1;
   if (!row) {
@@ -682,6 +879,7 @@ function resetFilters() {
   controls.to.value = state.payload?.date_to || '';
   state.activeBucket = 'all';
   state.selectedIndex = 0;
+  state.selectedDateKey = '';
   render();
 }
 

@@ -692,7 +692,7 @@ body::before {
 .trade-summary-title {
   margin: 0;
   font-family: var(--display);
-  letter-spacing: -0.045em;
+  letter-spacing: 0;
 }
 
 .brand-copy h1 {
@@ -848,7 +848,7 @@ body::before {
 .orientation-block h3 {
   margin: 0;
   font-family: var(--display);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 .orientation-lead h2 {
@@ -2210,5 +2210,457 @@ tbody tr.active {
     scroll-behavior: auto !important;
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Stitch-driven financial intelligence surface */
+.intraday-page {
+  --bg: #0b0e11;
+  --panel: #111417;
+  --panel-strong: #191c1f;
+  --panel-muted: #1d2023;
+  --line: #272f3a;
+  --line-strong: #414753;
+  --text: #e1e2e7;
+  --text-soft: #c0c6d5;
+  --text-faint: #8a919f;
+  --accent: #2e90ff;
+  --accent-wash: rgba(46, 144, 255, 0.13);
+  --green: #00f59b;
+  --red: #ff5352;
+  --amber: #ffb86b;
+  --radius-xl: 8px;
+  --radius-lg: 6px;
+  --radius-md: 4px;
+  --radius-sm: 4px;
+  --sans: "Inter", "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Inter", "Fira Code", ui-monospace, monospace;
+  --display: "Inter", "Fira Sans", ui-sans-serif, system-ui, sans-serif;
+  background: #0b0e11;
+}
+
+.intraday-page::before {
+  display: none;
+}
+
+.intraday-shell {
+  max-width: none;
+  padding: 12px;
+}
+
+.intraday-header,
+.panel {
+  border-radius: 8px;
+  box-shadow: none;
+  background: var(--panel);
+  border-color: var(--line);
+}
+
+.panel::before {
+  display: none;
+}
+
+.intraday-header {
+  min-height: 96px;
+  padding: 18px 20px;
+}
+
+.intraday-header h1 {
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.intraday-header p {
+  max-width: 960px;
+  color: var(--text-soft);
+}
+
+.intraday-terminal {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr) 360px;
+  gap: 12px;
+  align-items: start;
+}
+
+.intraday-controls {
+  top: 12px;
+  border-radius: 8px;
+  padding: 14px;
+  gap: 12px;
+  background: #111417;
+}
+
+.intraday-controls input,
+.intraday-controls select {
+  height: 36px;
+  border-radius: 4px;
+  background: #0b0e11;
+  border-color: var(--line-strong);
+  font-size: 13px;
+}
+
+.quick-presets button,
+.ghost-button,
+.bucket-tab {
+  border-radius: 4px;
+}
+
+.intraday-results {
+  min-width: 0;
+}
+
+.intraday-kpis {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.intraday-kpi,
+.insight-chip,
+.loaded-report-card,
+.risk-note,
+.detail-metrics div,
+.option-probe,
+.option-leg-card {
+  border-radius: 4px;
+  background: #191c1f;
+  border-color: var(--line);
+}
+
+.intraday-kpi {
+  padding: 10px 12px;
+}
+
+.intraday-kpi strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.visible-insights {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.day-review {
+  padding: 12px;
+  background: #111417;
+}
+
+.day-review-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.day-review-head h2,
+.chart-toolbar h3 {
+  margin: 2px 0 0;
+  letter-spacing: 0;
+}
+
+.day-review-head p {
+  margin: 5px 0 0;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.day-review-grid {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 600px;
+}
+
+.date-rail {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  max-height: 632px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.date-cluster {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px;
+  color: var(--text-soft);
+  background: #191c1f;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.date-cluster:hover,
+.date-cluster.active {
+  color: var(--text);
+  border-color: rgba(46, 144, 255, 0.8);
+  background: rgba(46, 144, 255, 0.12);
+}
+
+.date-cluster-day {
+  font: 700 14px var(--sans);
+}
+
+.date-cluster-meta,
+.date-cluster-foot {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.date-cluster-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.date-cluster-foot strong,
+.date-cluster-foot em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-cluster mark {
+  border-radius: 3px;
+  padding: 3px 5px;
+  color: #111417;
+  background: var(--amber);
+  font: 800 10px var(--mono);
+}
+
+.date-empty {
+  color: var(--text-faint);
+  border: 1px dashed var(--line);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.chart-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(420px, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chart-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-faint);
+  font: 700 11px var(--mono);
+}
+
+.chart-legend span {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 5px 7px;
+  background: #191c1f;
+}
+
+.legend-up {
+  color: var(--green);
+}
+
+.legend-down {
+  color: var(--red);
+}
+
+.legend-signal {
+  color: var(--accent);
+}
+
+.day-chart-shell {
+  position: relative;
+  min-height: 520px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #0b0e11;
+}
+
+.day-chart {
+  width: 100%;
+  height: 100%;
+  min-height: 520px;
+}
+
+.day-chart-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--text-faint);
+  background: rgba(11, 14, 17, 0.86);
+  font: 700 13px var(--mono);
+  text-align: center;
+}
+
+.day-chart-status.hidden {
+  display: none;
+}
+
+.day-signal-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.day-signal {
+  display: grid;
+  min-width: 148px;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 9px;
+  background: #191c1f;
+  color: var(--text-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-signal.active,
+.day-signal:hover {
+  border-color: var(--accent);
+  background: rgba(46, 144, 255, 0.12);
+}
+
+.day-signal span {
+  font: 800 12px var(--mono);
+}
+
+.day-signal strong {
+  font: 800 16px var(--mono);
+}
+
+.day-signal em {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.intraday-main {
+  padding: 12px;
+  background: #111417;
+}
+
+.intraday-toolbar {
+  margin-bottom: 10px;
+}
+
+.bucket-tabs {
+  margin-bottom: 10px;
+}
+
+.intraday-ledger {
+  max-height: 420px;
+  border-radius: 4px;
+  background: #0b0e11;
+}
+
+.intraday-ledger thead {
+  background: #111417;
+}
+
+.intraday-ledger th {
+  color: var(--text-faint);
+  letter-spacing: 0.08em;
+}
+
+.intraday-ledger td {
+  font-variant-numeric: tabular-nums;
+  border-top-color: rgba(65, 71, 83, 0.62);
+}
+
+.intraday-ledger tbody tr.same-date {
+  background: rgba(46, 144, 255, 0.045);
+}
+
+.intraday-ledger tbody tr.selected {
+  background: rgba(46, 144, 255, 0.16);
+  outline: 1px solid rgba(46, 144, 255, 0.42);
+}
+
+.bucket-pill,
+.option-expiry-badge {
+  border-radius: 4px;
+}
+
+.option-expiry-badge.expiry-day {
+  box-shadow: none;
+}
+
+.instance-detail {
+  top: 12px;
+  min-height: calc(100vh - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  padding: 14px;
+  border-left: 1px solid var(--line);
+  background: #111417;
+}
+
+.detail-header h3 {
+  font-size: 22px;
+}
+
+.rr-bar,
+.review-link {
+  border-radius: 4px;
+}
+
+.review-link {
+  background: var(--accent);
+  color: #06111d;
+}
+
+@media (max-width: 1440px) {
+  .intraday-terminal {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .instance-detail {
+    grid-column: 1 / -1;
+    position: static;
+    min-height: auto;
+    max-height: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .intraday-terminal,
+  .day-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .intraday-controls {
+    position: static;
+  }
+
+  .date-rail {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(190px, 1fr);
+    overflow-x: auto;
+    max-height: none;
+  }
+
+  .visible-insights,
+  .intraday-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
