@@ -393,6 +393,36 @@ function optionWindowAlreadyCached(db, instrumentKey, fromDate, toDate) {
   return Number(row?.rows ?? 0) > 0;
 }
 
+function pruneOptionDataOutsideRange(db, fromDate, toDate) {
+  if (!fromDate || !toDate) return { candles: 0, contracts: 0, expiries: 0 };
+  const candles = db
+    .prepare(
+      `
+      DELETE FROM ohlcv_intraday
+      WHERE data_mode = ?
+        AND (date < ? OR date > ?)
+      `,
+    )
+    .run(OPTION_DATA_MODE, fromDate, toDate).changes;
+  const contracts = db
+    .prepare(
+      `
+      DELETE FROM option_contracts
+      WHERE expiry_date < ? OR expiry_date > ?
+      `,
+    )
+    .run(fromDate, toDate).changes;
+  const expiries = db
+    .prepare(
+      `
+      DELETE FROM option_expiries
+      WHERE expiry_date < ? OR expiry_date > ?
+      `,
+    )
+    .run(fromDate, toDate).changes;
+  return { candles, contracts, expiries };
+}
+
 async function mapWithConcurrency(items, concurrency, worker) {
   let cursor = 0;
   const workers = Array.from({ length: Math.max(1, concurrency) }, async () => {
@@ -417,6 +447,8 @@ async function main() {
   const limitSignals = Number(args["limit-signals"] ?? 200);
   const requestDelayMs = Number(args["request-delay-ms"] ?? 150);
   const refresh = args.refresh === true || String(args.refresh ?? "").toLowerCase() === "true";
+  const retainFromDate = args["retain-from-date"] ? String(args["retain-from-date"]) : "";
+  const retainToDate = args["retain-to-date"] ? String(args["retain-to-date"]) : "";
   const symbols = args.symbols
     ? new Set(String(args.symbols).split(/[,\s]+/).map((item) => item.trim().toUpperCase()).filter(Boolean))
     : null;
@@ -482,6 +514,13 @@ async function main() {
     console.log(`[${index + 1}/${work.length}] ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${rows} candles`);
     if (requestDelayMs > 0) await sleep(requestDelayMs);
   });
+  if (retainFromDate && retainToDate) {
+    const pruned = pruneOptionDataOutsideRange(db, retainFromDate, retainToDate);
+    console.log(
+      `Pruned option data outside ${retainFromDate}..${retainToDate}: ` +
+        `${pruned.candles} candles, ${pruned.contracts} contracts, ${pruned.expiries} expiries`,
+    );
+  }
   db.close();
 }
 

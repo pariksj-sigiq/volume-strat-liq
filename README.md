@@ -249,12 +249,18 @@ The futures command depends on what Upstox exposes for active contracts; a compl
 To load ATM option candles for precomputed intraday signals:
 
 ```bash
-node scripts/upstox_signal_options_backfill.mjs --from-date 2026-03-01 --to-date 2026-03-31 --concurrency 1 --request-delay-ms 175
+node scripts/upstox_signal_options_backfill.mjs \
+  --from-date 2026-04-01 \
+  --to-date 2026-04-30 \
+  --concurrency 1 \
+  --request-delay-ms 750 \
+  --retain-from-date 2026-03-01 \
+  --retain-to-date 2026-04-30
 ```
 
 The option backfill first asks Upstox for the actual expired option expiries for each symbol and stores them in `option_expiries`; this avoids guessing stock-option expiries from calendar rules.
 
-On EC2, run the `Backfill Options` GitHub Actions workflow to fill the preserved production DB and restart the app cache after the job.
+On EC2, run the `Backfill Options` GitHub Actions workflow to fill the preserved production DB and restart the app cache after the job. Set `retain_from_date` and `retain_to_date` when the option cache should stay scoped to a small rolling window.
 
 ### Analyze one symbol from the API
 
