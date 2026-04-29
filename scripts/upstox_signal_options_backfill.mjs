@@ -33,6 +33,10 @@ function parseCliArgs(argv = process.argv.slice(2)) {
   return config;
 }
 
+function booleanArg(value) {
+  return value === true || String(value ?? "").toLowerCase() === "true";
+}
+
 function loadEnvFile(cwd = process.cwd()) {
   const envPath = path.join(cwd, ".env");
   if (!fs.existsSync(envPath)) return;
@@ -190,6 +194,11 @@ function getUnderlyingKey(db, symbol) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorSummary(error) {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 async function fetchJson(url, token, options = {}) {
@@ -446,7 +455,8 @@ async function main() {
   const reportPath = path.resolve(args.report ?? "reports/intraday-volume-spike-bucketed-all.csv");
   const limitSignals = Number(args["limit-signals"] ?? 200);
   const requestDelayMs = Number(args["request-delay-ms"] ?? 150);
-  const refresh = args.refresh === true || String(args.refresh ?? "").toLowerCase() === "true";
+  const refresh = booleanArg(args.refresh);
+  const failOnWindowError = booleanArg(args["fail-on-window-error"]);
   const retainFromDate = args["retain-from-date"] ? String(args["retain-from-date"]) : "";
   const retainToDate = args["retain-to-date"] ? String(args["retain-to-date"]) : "";
   const symbols = args.symbols
@@ -508,12 +518,30 @@ async function main() {
 
   const work = [...optionWork.values()];
   console.log(`Fetching ${work.length} unique ATM option candle windows from ${signals.length} signals (${cachedWindows} cached windows skipped).`);
+  let fetchedWindows = 0;
+  let failedWindows = 0;
+  let writtenRows = 0;
   await mapWithConcurrency(work, Number(args.concurrency ?? 2), async ({ contract, fromDate, toDate }, index) => {
-    const candles = await fetchExpiredOptionCandles(contract.instrumentKey, token, fromDate, toDate);
-    const rows = writeOptionCandles(db, contract, candles);
-    console.log(`[${index + 1}/${work.length}] ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${rows} candles`);
-    if (requestDelayMs > 0) await sleep(requestDelayMs);
+    try {
+      const candles = await fetchExpiredOptionCandles(contract.instrumentKey, token, fromDate, toDate);
+      const rows = writeOptionCandles(db, contract, candles);
+      fetchedWindows += 1;
+      writtenRows += rows;
+      console.log(`[${index + 1}/${work.length}] ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${rows} candles`);
+    } catch (error) {
+      failedWindows += 1;
+      console.warn(
+        `[${index + 1}/${work.length}] SKIP ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${errorSummary(error)}`,
+      );
+      if (failOnWindowError) throw error;
+    } finally {
+      if (requestDelayMs > 0) await sleep(requestDelayMs);
+    }
   });
+  console.log(
+    `Option candle summary: ${fetchedWindows} fetched, ${cachedWindows} already cached, ` +
+      `${failedWindows} failed, ${writtenRows} candles written.`,
+  );
   if (retainFromDate && retainToDate) {
     const pruned = pruneOptionDataOutsideRange(db, retainFromDate, retainToDate);
     console.log(

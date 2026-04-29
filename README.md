@@ -253,12 +253,13 @@ node scripts/upstox_signal_options_backfill.mjs \
   --from-date 2026-04-01 \
   --to-date 2026-04-30 \
   --concurrency 1 \
-  --request-delay-ms 750 \
+  --request-delay-ms 1250 \
   --retain-from-date 2026-03-01 \
   --retain-to-date 2026-04-30
 ```
 
 The option backfill first asks Upstox for the actual expired option expiries for each symbol and stores them in `option_expiries`; this avoids guessing stock-option expiries from calendar rules.
+Individual option candle windows that keep failing after retries are logged and skipped so that the job can still prune the retained option cache and restart the app.
 
 On EC2, run the `Backfill Options` GitHub Actions workflow to fill the preserved production DB and restart the app cache after the job. Set `retain_from_date` and `retain_to_date` when the option cache should stay scoped to a small rolling window.
 

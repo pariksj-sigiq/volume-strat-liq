@@ -26,7 +26,7 @@ on:
       request_delay_ms:
         description: Delay after each candle request
         required: true
-        default: "175"
+        default: "1250"
       retain_from_date:
         description: Optional option-data retention start date
         required: false
