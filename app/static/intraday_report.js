@@ -49,6 +49,7 @@ const state = {
 };
 
 const TABLE_ROW_LIMIT = 800;
+const EXCHANGE_DISPLAY_OFFSET_SECONDS = 5.5 * 60 * 60;
 const REPORTS = {
   raw: {
     label: 'Raw candidates',
@@ -121,6 +122,11 @@ function formatTimestamp(value) {
     minute: '2-digit',
     hour12: false,
   }).format(date);
+}
+
+function chartDisplayTime(value) {
+  const seconds = Math.floor(new Date(value).getTime() / 1000);
+  return Number.isFinite(seconds) ? seconds + EXCHANGE_DISPLAY_OFFSET_SECONDS : seconds;
 }
 
 function formatDateInput(value) {
@@ -632,7 +638,7 @@ function drawDayChart(payload, dayRows, selected) {
     return;
   }
   const bars = (payload.bars || []).map((bar) => ({
-    time: Math.floor(new Date(bar.timestamp).getTime() / 1000),
+    time: chartDisplayTime(bar.timestamp),
     open: Number(bar.open),
     high: Number(bar.high),
     low: Number(bar.low),
@@ -660,7 +666,7 @@ function renderChartMarkers(dayRows, symbol) {
   const markers = dayRows
     .filter((row) => row.symbol === symbol)
     .map((row) => ({
-      time: Math.floor(new Date(row.signal_timestamp).getTime() / 1000),
+      time: chartDisplayTime(row.signal_timestamp),
       position: 'aboveBar',
       color: '#2e90ff',
       shape: 'arrowDown',
