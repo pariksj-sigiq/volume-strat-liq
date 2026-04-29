@@ -23,14 +23,29 @@ const nodes = {
   filteredCount: document.getElementById('filteredCount'),
   reportSource: document.getElementById('reportSourceLabel'),
   insights: document.getElementById('visibleInsights'),
+  dateRail: document.getElementById('dateRail'),
+  dayReviewTitle: document.getElementById('dayReviewTitle'),
+  dayReviewMeta: document.getElementById('dayReviewMeta'),
+  dayChart: document.getElementById('dayChart'),
+  dayChartTitle: document.getElementById('dayChartTitle'),
+  dayChartStatus: document.getElementById('dayChartStatus'),
+  daySignals: document.getElementById('daySignals'),
 };
 
 const state = {
   payload: null,
   rows: [],
   selectedIndex: 0,
+  selectedDateKey: '',
   activeBucket: 'all',
   optionProbeRequestId: 0,
+  dayRequestId: 0,
+  dayChart: null,
+  daySeries: {
+    candles: null,
+    volume: null,
+  },
+  dayPriceLines: [],
 };
 
 const TABLE_ROW_LIMIT = 800;
@@ -112,6 +127,16 @@ function formatDateInput(value) {
   return String(value || '').slice(0, 10);
 }
 
+function signalDate(row) {
+  return formatDateInput(row?.signal_timestamp);
+}
+
+function selectedRow() {
+  const rows = filteredInstances();
+  if (!rows.length) return null;
+  return rows[Math.min(state.selectedIndex, rows.length - 1)] || rows[0] || null;
+}
+
 function bucketLabel(bucket) {
   if (bucket === 'same_day') return 'Same day';
   if (bucket === 'next_morning_entry') return 'Next morning';
@@ -141,6 +166,7 @@ async function loadReport() {
     state.payload = payload;
     state.rows = payload.instances || [];
     state.selectedIndex = 0;
+    state.selectedDateKey = '';
     state.activeBucket = 'all';
     hydrateFilters();
     setStatus(`Loaded ${formatCount(payload.instances_returned)} mined instances`, 'live');
@@ -179,7 +205,9 @@ function render() {
   renderKpis();
   renderInsights();
   renderBucketTabs();
+  renderDateRail();
   renderTable();
+  renderDayReview();
 }
 
 function renderKpis() {
@@ -251,6 +279,81 @@ function renderBucketTabs() {
       render();
     });
   });
+}
+
+function groupRowsByDate(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = signalDate(row);
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+  return [...groups.entries()]
+    .map(([date, groupRows]) => {
+      const summary = summarizeRows(groupRows);
+      const symbols = new Set(groupRows.map((row) => row.symbol).filter(Boolean));
+      const expiryCount = groupRows.filter((row) => row.is_option_expiry_day === true || row.is_option_expiry_day === 'true').length;
+      const sorted = [...groupRows].sort((a, b) =>
+        Number(b.volume_multiple || 0) - Number(a.volume_multiple || 0) ||
+        String(b.signal_timestamp || '').localeCompare(String(a.signal_timestamp || '')),
+      );
+      return {
+        date,
+        rows: sorted,
+        summary,
+        symbols: symbols.size,
+        expiryCount,
+        top: sorted[0],
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function renderDateRail() {
+  const groups = groupRowsByDate(filteredInstances(false));
+  if (!groups.length) {
+    state.selectedDateKey = '';
+    nodes.dateRail.innerHTML = '<div class="date-empty">No dates match filters.</div>';
+    return;
+  }
+  if (!state.selectedDateKey || !groups.some((group) => group.date === state.selectedDateKey)) {
+    state.selectedDateKey = groups[0].date;
+  }
+  nodes.dateRail.innerHTML = groups.slice(0, 120).map((group) => {
+    const isActive = group.date === state.selectedDateKey;
+    const bestR = group.summary.best_rr || 0;
+    return `
+      <button class="date-cluster ${isActive ? 'active' : ''}" type="button" data-date="${escapeHtml(group.date)}">
+        <span class="date-cluster-day">${escapeHtml(formatShortDate(group.date))}</span>
+        <span class="date-cluster-meta">${formatCount(group.rows.length)} signals · ${formatCount(group.symbols)} symbols</span>
+        <span class="date-cluster-foot">
+          <strong class="${bestR >= 0 ? 'positive' : 'negative'}">${escapeHtml(formatR(bestR))}</strong>
+          <em>${escapeHtml(formatNumber(group.summary.avg_volume_multiple, 1))}x vol</em>
+          ${group.expiryCount ? '<mark>EXP</mark>' : ''}
+        </span>
+      </button>
+    `;
+  }).join('');
+  nodes.dateRail.querySelectorAll('button[data-date]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedDateKey = button.dataset.date || '';
+      const rows = filteredInstances();
+      const index = rows.findIndex((row) => signalDate(row) === state.selectedDateKey);
+      state.selectedIndex = index >= 0 ? index : 0;
+      render();
+    });
+  });
+}
+
+function formatShortDate(value) {
+  const date = new Date(`${value}T00:00:00+05:30`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: '2-digit',
+  }).format(date);
 }
 
 function filteredInstances(applySort = true, options = {}) {
@@ -335,9 +438,14 @@ function renderTable() {
     return;
   }
   state.selectedIndex = Math.min(state.selectedIndex, rows.length - 1);
+  const activeRow = rows[state.selectedIndex];
+  if (activeRow && signalDate(activeRow) !== state.selectedDateKey) {
+    const sameDateIndex = rows.findIndex((row) => signalDate(row) === state.selectedDateKey);
+    if (sameDateIndex >= 0) state.selectedIndex = sameDateIndex;
+  }
   const visibleRows = rows.slice(0, TABLE_ROW_LIMIT);
   nodes.table.innerHTML = visibleRows.map((row, index) => `
-    <tr class="${index === state.selectedIndex ? 'selected' : ''}" data-index="${index}">
+    <tr class="${index === state.selectedIndex ? 'selected' : ''} ${signalDate(row) === state.selectedDateKey ? 'same-date' : ''}" data-index="${index}">
       <td><span class="bucket-pill ${bucketClass(row.bucket)}">${escapeHtml(bucketLabel(row.bucket))}</span></td>
       <td><strong>${escapeHtml(row.symbol)}</strong></td>
       <td>${escapeHtml(formatTimestamp(row.signal_timestamp))}</td>
@@ -353,7 +461,9 @@ function renderTable() {
   nodes.table.querySelectorAll('tr[data-index]').forEach((row) => {
     row.addEventListener('click', () => {
       state.selectedIndex = Number(row.dataset.index || 0);
-      renderTable();
+      const current = filteredInstances()[state.selectedIndex];
+      state.selectedDateKey = signalDate(current);
+      render();
     });
   });
   if (rows.length > visibleRows.length) {

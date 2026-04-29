@@ -19,6 +19,7 @@ from backtest.intraday_volume_spike import (
     simulate_intraday_exits,
 )
 from app.server import (
+    build_intraday_day_payload_from_query,
     build_intraday_payload_from_query,
     build_intraday_report_from_query,
     build_precomputed_intraday_report,
@@ -316,6 +317,28 @@ class IntradayVolumeSpikeTests(unittest.TestCase):
         self.assertEqual(payload["bucket_summaries"]["next_morning_entry"]["total_trades"], 1)
         self.assertEqual(payload["bucket_summaries"]["two_day_hold"]["total_trades"], 1)
         self.assertEqual(payload["controls"]["two_day_hold_bars"], 4)
+
+    def test_server_intraday_day_payload_returns_candles_for_selected_date(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "intraday.db"
+            _create_intraday_db(db_path)
+
+            payload, status = build_intraday_day_payload_from_query(
+                db_path,
+                {
+                    "symbol": ["TEST"],
+                    "date": ["2026-04-27"],
+                    "data_mode": ["equity_signal_proxy_1m"],
+                },
+            )
+
+        self.assertEqual(status.value, 200)
+        self.assertEqual(payload["symbol"], "TEST")
+        self.assertEqual(payload["date"], "2026-04-27")
+        self.assertEqual(payload["bars_returned"], 8)
+        self.assertEqual(payload["bars"][0]["timestamp"], "2026-04-27T09:15:00+05:30")
+        self.assertEqual(payload["bars"][0]["open"], 100.0)
+        self.assertEqual(payload["bars"][6]["volume"], 180.0)
 
     def test_run_intraday_universe_backtest_summarizes_symbols(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

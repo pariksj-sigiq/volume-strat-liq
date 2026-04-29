@@ -22,6 +22,7 @@ from backtest.intraday_volume_spike import (
     DEFAULT_BUCKETS,
     IntradayScalpConfig,
     build_intraday_symbol_payload,
+    load_intraday_bars,
     run_intraday_bucketed_backtest,
 )
 from backtest.options_overlay import (
@@ -233,6 +234,57 @@ def build_intraday_payload_from_query(db_path: Path, query: dict[str, list[str]]
         "allow_overnight": allow_overnight,
     }
     return payload, HTTPStatus.OK
+
+
+def build_intraday_day_payload_from_query(db_path: Path, query: dict[str, list[str]]) -> tuple[dict[str, object], HTTPStatus]:
+    symbol = (_query_value(query, "symbol") or "").strip().upper()
+    day = (_query_value(query, "date") or "").strip()[:10]
+    if not symbol:
+        return {"error": "A symbol is required for intraday day candles."}, HTTPStatus.BAD_REQUEST
+    if not day:
+        return {"error": "A date is required for intraday day candles."}, HTTPStatus.BAD_REQUEST
+
+    data_mode = (_query_value(query, "data_mode", "equity_signal_proxy_1m") or "equity_signal_proxy_1m").strip()
+    timeframe_sec = int(_query_value(query, "timeframe_sec", "60") or 60)
+    try:
+        bars = load_intraday_bars(
+            db_path,
+            symbol,
+            data_mode=data_mode,
+            start_date=day,
+            end_date=day,
+            timeframe_sec=timeframe_sec,
+        )
+    except FileNotFoundError as error:
+        return {"error": str(error)}, HTTPStatus.NOT_FOUND
+    except Exception as error:
+        return {"error": str(error)}, HTTPStatus.BAD_REQUEST
+
+    return {
+        "symbol": symbol,
+        "date": day,
+        "data_mode": data_mode,
+        "timeframe_sec": timeframe_sec,
+        "bars_returned": len(bars),
+        "bars": [
+            {
+                "timestamp": bar.timestamp.isoformat(),
+                "open": bar.open,
+                "high": bar.high,
+                "low": bar.low,
+                "close": bar.close,
+                "volume": bar.volume,
+                "turnover": bar.turnover,
+                "open_interest": bar.open_interest,
+                "instrument_key": bar.instrument_key,
+                "trading_symbol": bar.trading_symbol,
+                "contract_expiry": str(bar.contract_expiry) if bar.contract_expiry else None,
+                "lot_size": bar.lot_size,
+                "source": bar.source,
+            }
+            for bar in bars
+        ],
+    }, HTTPStatus.OK
 
 
 def build_intraday_report_from_query(db_path: Path, query: dict[str, list[str]]) -> tuple[dict[str, object], HTTPStatus]:
@@ -488,6 +540,10 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/intraday/analyze":
             payload, status = build_intraday_payload_from_query(db_path, query)
+            self._send_json(payload, status)
+            return
+        if parsed.path == "/api/intraday/day":
+            payload, status = build_intraday_day_payload_from_query(db_path, query)
             self._send_json(payload, status)
             return
         if parsed.path == "/api/intraday/report":

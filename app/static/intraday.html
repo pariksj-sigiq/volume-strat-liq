@@ -16,11 +16,11 @@
     <div class="app-shell intraday-shell">
       <header class="intraday-header panel">
         <div>
-          <div class="eyebrow">Intraday Spike Lab</div>
-          <h1>Volume-spike research board</h1>
+          <div class="eyebrow">Volume Strat Liq</div>
+          <h1>Signal review workstation</h1>
           <p>
-            Scan the ETERNAL-style pattern across downloaded 1-minute history, compare same-day,
-            next-morning, and two-day buckets, then drill into any symbol replay.
+            Group mined liquidity-sweep signals by date, inspect the full 1-minute candlestick and volume tape,
+            and review each setup in context before deciding what deserves live-market attention.
           </p>
         </div>
         <div class="intraday-status">
@@ -29,11 +29,11 @@
         </div>
       </header>
 
-      <main class="intraday-workbench">
+      <main class="intraday-terminal">
         <aside class="intraday-controls panel">
           <div class="rail-title">
-            <div class="eyebrow">Analysis Filters</div>
-            <h2>Instance board</h2>
+            <div class="eyebrow">Filters</div>
+            <h2>Signal universe</h2>
           </div>
           <div class="loaded-report-card">
             <span>Source</span>
@@ -113,48 +113,78 @@
         <section class="intraday-results">
           <div class="intraday-kpis" id="intradayKpis"></div>
           <div class="visible-insights" id="visibleInsights"></div>
+
+          <section class="day-review panel">
+            <div class="day-review-head">
+              <div>
+                <div class="eyebrow">Date Review</div>
+                <h2 id="dayReviewTitle">Select a signal date</h2>
+                <p id="dayReviewMeta">Candlesticks and volume load from the local 1-minute warehouse.</p>
+              </div>
+              <span id="filteredCount" class="filtered-count">0 visible</span>
+            </div>
+            <div class="day-review-grid">
+              <nav class="date-rail" id="dateRail" aria-label="Signal dates"></nav>
+              <div class="chart-workspace">
+                <div class="chart-toolbar">
+                  <div>
+                    <div class="eyebrow">1m Tape</div>
+                    <h3 id="dayChartTitle">No chart loaded</h3>
+                  </div>
+                  <div class="chart-legend">
+                    <span class="legend-up">Up</span>
+                    <span class="legend-down">Down</span>
+                    <span class="legend-signal">Signal</span>
+                  </div>
+                </div>
+                <div class="day-chart-shell">
+                  <div id="dayChart" class="day-chart"></div>
+                  <div id="dayChartStatus" class="day-chart-status">Select a date group to load candles.</div>
+                </div>
+                <div class="day-signal-strip" id="daySignals"></div>
+              </div>
+            </div>
+          </section>
+
           <div class="intraday-main panel">
             <div class="intraday-toolbar">
               <div>
-                <div class="eyebrow">Mined Instances</div>
+                <div class="eyebrow">Signal Tape</div>
                 <h2 id="intradayResultTitle">No report yet</h2>
-              </div>
-              <div class="ledger-controls">
-                <span id="filteredCount" class="filtered-count">0 visible</span>
               </div>
             </div>
             <div class="bucket-tabs" id="bucketTabs"></div>
-            <div class="instance-layout">
-              <div class="ledger-wrap intraday-ledger">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Bucket</th>
-                      <th>Symbol</th>
-                      <th>Signal</th>
-                      <th>Expiry</th>
-                      <th>Exit</th>
-                      <th>Outcome</th>
-                      <th>R</th>
-                      <th>MFE</th>
-                      <th>Vol x</th>
-                      <th>Turnover</th>
-                    </tr>
-                  </thead>
-                  <tbody id="instanceTableBody">
-                    <tr><td colspan="10">Loading the full mined report...</td></tr>
-                  </tbody>
-                </table>
-              </div>
-              <aside class="instance-detail" id="instanceDetail">
-                <div class="eyebrow">Selected Instance</div>
-                <p>Select a row to inspect the trade structure and replay link.</p>
-              </aside>
+            <div class="ledger-wrap intraday-ledger">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Bucket</th>
+                    <th>Symbol</th>
+                    <th>Signal</th>
+                    <th>Expiry</th>
+                    <th>Exit</th>
+                    <th>Outcome</th>
+                    <th>R</th>
+                    <th>MFE</th>
+                    <th>Vol x</th>
+                    <th>Turnover</th>
+                  </tr>
+                </thead>
+                <tbody id="instanceTableBody">
+                  <tr><td colspan="10">Loading the full mined report...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
+
+        <aside class="instance-detail panel" id="instanceDetail">
+          <div class="eyebrow">Selected Signal</div>
+          <p>Select a row or a signal inside the day chart to inspect the trade structure.</p>
+        </aside>
       </main>
     </div>
+    <script src="/vendor/lightweight-charts.js"></script>
     <script type="module" src="/assets/intraday_report.js"></script>
   </body>
 </html>

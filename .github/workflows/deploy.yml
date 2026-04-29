@@ -1,0 +1,41 @@
+name: Deploy EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: liq-sweep-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Test and deploy to ap-south-1 EC2
+    runs-on:
+      - self-hosted
+      - liq-sweep
+      - ap-south-1
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Node tests
+        run: npm test
+
+      - name: Run Python tests
+        run: python3.11 -m unittest discover -s tests -v
+
+      - name: Static checks
+        run: |
+          node --check src/upstox/backfill.mjs
+          node --check app/static/app.js
+          python3.11 -m py_compile app/server.py backtest/liquidity_sweep_backtest.py backtest/intraday_volume_spike.py backtest/options_overlay.py
+
+      - name: Deploy application without touching data
+        run: sudo bash scripts/ec2_deploy.sh "$GITHUB_WORKSPACE"
