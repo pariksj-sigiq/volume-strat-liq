@@ -46,6 +46,51 @@ body {
     linear-gradient(180deg, #050b12 0%, #081018 34%, #0a121a 100%);
 }
 
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: rgba(10, 15, 24, 0.92);
+}
+
+.app-nav a {
+  color: var(--text-faint);
+  text-decoration: none;
+}
+
+.app-nav-brand {
+  color: var(--text) !important;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.app-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-nav-links a {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.app-nav-links a:hover,
+.app-nav-links a.active {
+  color: var(--text);
+  border-color: rgba(46, 144, 255, 0.58);
+  background: rgba(46, 144, 255, 0.14);
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -2643,6 +2688,16 @@ tbody tr.active {
 }
 
 @media (max-width: 1080px) {
+  .app-nav {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .app-nav-links {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .intraday-terminal,
   .day-review-grid {
     grid-template-columns: 1fr;

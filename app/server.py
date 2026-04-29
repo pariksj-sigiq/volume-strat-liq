@@ -77,12 +77,10 @@ def _bool_query(query: dict[str, list[str]], key: str, default: bool = False) ->
 
 
 def _resolve_static_path(pathname: str) -> Path | None:
-    if pathname == "/":
+    if pathname in {"/", "/intraday", "/intraday.html", "/signals", "/signals.html"}:
         return STATIC_DIR / "intraday.html"
-    if pathname == "/index.html":
+    if pathname in {"/daily", "/daily.html", "/index.html"}:
         return STATIC_DIR / "index.html"
-    if pathname == "/intraday.html":
-        return STATIC_DIR / "intraday.html"
     if pathname.startswith("/assets/"):
         candidate = STATIC_DIR / pathname.removeprefix("/assets/")
         if candidate.is_file():

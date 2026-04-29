@@ -19,6 +19,8 @@ from backtest.intraday_volume_spike import (
     simulate_intraday_exits,
 )
 from app.server import (
+    STATIC_DIR,
+    _resolve_static_path,
     build_intraday_day_payload_from_query,
     build_intraday_payload_from_query,
     build_intraday_report_from_query,
@@ -75,6 +77,16 @@ def _bars_with_spike(
 
 
 class IntradayVolumeSpikeTests(unittest.TestCase):
+    def test_application_routes_make_signal_review_the_default(self) -> None:
+        intraday_path = STATIC_DIR / "intraday.html"
+        daily_path = STATIC_DIR / "index.html"
+
+        for pathname in ["/", "/intraday", "/intraday.html", "/signals", "/signals.html"]:
+            self.assertEqual(_resolve_static_path(pathname), intraday_path)
+
+        for pathname in ["/daily", "/daily.html", "/index.html"]:
+            self.assertEqual(_resolve_static_path(pathname), daily_path)
+
     def test_detects_volume_spike_breakout_and_uses_next_bar_open_entry(self) -> None:
         config = IntradayScalpConfig(
             base_lookback=5,
