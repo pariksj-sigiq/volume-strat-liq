@@ -249,7 +249,7 @@ The futures command depends on what Upstox exposes for active contracts; a compl
 To load ATM option candles for precomputed intraday signals:
 
 ```bash
-node scripts/upstox_signal_options_backfill.mjs --from-date 2026-03-01 --to-date 2026-03-31 --concurrency 2
+node scripts/upstox_signal_options_backfill.mjs --from-date 2026-03-01 --to-date 2026-03-31 --concurrency 1 --request-delay-ms 175
 ```
 
 The option backfill first asks Upstox for the actual expired option expiries for each symbol and stores them in `option_expiries`; this avoids guessing stock-option expiries from calendar rules.

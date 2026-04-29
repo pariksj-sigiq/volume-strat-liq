@@ -399,6 +399,7 @@ async function main() {
   const marketDates = loadMarketDates(db);
   const reportPath = path.resolve(args.report ?? "reports/intraday-volume-spike-bucketed-all.csv");
   const limitSignals = Number(args["limit-signals"] ?? 200);
+  const requestDelayMs = Number(args["request-delay-ms"] ?? 150);
   const symbols = args.symbols
     ? new Set(String(args.symbols).split(/[,\s]+/).map((item) => item.trim().toUpperCase()).filter(Boolean))
     : null;
@@ -457,6 +458,7 @@ async function main() {
     const candles = await fetchExpiredOptionCandles(contract.instrumentKey, token, fromDate, toDate);
     const rows = writeOptionCandles(db, contract, candles);
     console.log(`[${index + 1}/${work.length}] ${contract.tradingSymbol} ${fromDate}..${toDate} -> ${rows} candles`);
+    if (requestDelayMs > 0) await sleep(requestDelayMs);
   });
   db.close();
 }

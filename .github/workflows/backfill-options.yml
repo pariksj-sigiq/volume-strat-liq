@@ -23,6 +23,10 @@ on:
         description: Upstox candle fetch concurrency
         required: true
         default: "2"
+      request_delay_ms:
+        description: Delay after each candle request
+        required: true
+        default: "175"
 
 jobs:
   backfill:
@@ -34,6 +38,7 @@ jobs:
       INPUT_SYMBOLS: ${{ inputs.symbols }}
       INPUT_LIMIT_SIGNALS: ${{ inputs.limit_signals }}
       INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+      INPUT_REQUEST_DELAY_MS: ${{ inputs.request_delay_ms }}
       UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
     steps:
       - name: Check token
@@ -48,6 +53,7 @@ jobs:
             --to-date "$INPUT_TO_DATE"
             --limit-signals "$INPUT_LIMIT_SIGNALS"
             --concurrency "$INPUT_CONCURRENCY"
+            --request-delay-ms "$INPUT_REQUEST_DELAY_MS"
           )
           if [ -n "$INPUT_SYMBOLS" ]; then
             args+=(--symbols "$INPUT_SYMBOLS")
