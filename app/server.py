@@ -428,11 +428,54 @@ def build_precomputed_intraday_report_from_query(
     if reports_dir not in report_path.parents and report_path != DEFAULT_INTRADAY_REPORT_PATH.resolve():
         return {"error": "Report path must live under the local reports directory."}, HTTPStatus.BAD_REQUEST
     try:
-        return build_precomputed_intraday_report(report_path, db_path), HTTPStatus.OK
+        payload = build_precomputed_intraday_report(report_path, db_path)
+        from_date = _query_value(query, "from_date", None)
+        to_date = _query_value(query, "to_date", None)
+        if from_date or to_date:
+            payload = _filter_precomputed_intraday_report(payload, from_date, to_date)
+        return payload, HTTPStatus.OK
     except FileNotFoundError as error:
         return {"error": str(error)}, HTTPStatus.NOT_FOUND
     except Exception as error:
         return {"error": str(error)}, HTTPStatus.BAD_REQUEST
+
+
+def _filter_precomputed_intraday_report(
+    payload: dict[str, object],
+    from_date: str | None,
+    to_date: str | None,
+) -> dict[str, object]:
+    rows = [
+        row
+        for row in payload.get("instances", [])
+        if isinstance(row, dict)
+        and (not from_date or str(row.get("signal_timestamp") or "")[:10] >= from_date)
+        and (not to_date or str(row.get("signal_timestamp") or "")[:10] <= to_date)
+    ]
+    bucket_summaries: dict[str, dict[str, object]] = {}
+    for bucket in DEFAULT_BUCKETS:
+        bucket_rows = [row for row in rows if row.get("bucket") == bucket]
+        bucket_summaries[bucket] = _summarize_intraday_rows(bucket_rows)
+
+    symbols = sorted({str(row.get("symbol", "")).upper() for row in rows if row.get("symbol")})
+    latest_signal = max((str(row.get("signal_timestamp") or "") for row in rows), default="")
+    earliest_signal = min((str(row.get("signal_timestamp") or "") for row in rows if row.get("signal_timestamp")), default="")
+    filtered = dict(payload)
+    filtered.update(
+        {
+            "symbols": symbols,
+            "symbols_scanned": len(symbols),
+            "instances": rows,
+            "instances_returned": len(rows),
+            "summary": _summarize_intraday_rows(rows),
+            "bucket_summaries": bucket_summaries,
+            "date_from": earliest_signal[:10] or from_date,
+            "date_to": latest_signal[:10] or to_date,
+            "requested_date_from": from_date,
+            "requested_date_to": to_date,
+        }
+    )
+    return filtered
 
 
 def build_option_probe_from_query(db_path: Path, query: dict[str, list[str]]) -> tuple[dict[str, object], HTTPStatus]:

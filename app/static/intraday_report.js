@@ -22,6 +22,7 @@ const nodes = {
   detail: document.getElementById('instanceDetail'),
   filteredCount: document.getElementById('filteredCount'),
   reportSource: document.getElementById('reportSourceLabel'),
+  optionCache: document.getElementById('optionCacheLabel'),
   insights: document.getElementById('visibleInsights'),
   dateRail: document.getElementById('dateRail'),
   dayReviewTitle: document.getElementById('dayReviewTitle'),
@@ -50,6 +51,9 @@ const state = {
 
 const TABLE_ROW_LIMIT = 800;
 const EXCHANGE_DISPLAY_OFFSET_SECONDS = 5.5 * 60 * 60;
+const OPTION_CACHE_FROM_DATE = '2026-03-01';
+const OPTION_CACHE_TO_DATE = '2026-04-30';
+const OPTION_CACHE_LABEL = 'Mar 1-Apr 30, 2026';
 const REPORTS = {
   raw: {
     label: 'Raw candidates',
@@ -133,6 +137,11 @@ function formatDateInput(value) {
   return String(value || '').slice(0, 10);
 }
 
+function isInsideOptionCacheWindow(row) {
+  const date = signalDate(row);
+  return Boolean(date) && date >= OPTION_CACHE_FROM_DATE && date <= OPTION_CACHE_TO_DATE;
+}
+
 function signalDate(row) {
   return formatDateInput(row?.signal_timestamp);
 }
@@ -165,7 +174,11 @@ async function loadReport() {
   setStatus(`Loading ${report.label}...`, 'live');
   nodes.table.innerHTML = '<tr><td colspan="10">Loading the full mined report...</td></tr>';
   try {
-    const params = new URLSearchParams({ path: report.path });
+    const params = new URLSearchParams({
+      path: report.path,
+      from_date: OPTION_CACHE_FROM_DATE,
+      to_date: OPTION_CACHE_TO_DATE,
+    });
     const response = await fetch(`/api/intraday/precomputed-report?${params.toString()}`);
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
@@ -176,11 +189,13 @@ async function loadReport() {
     state.activeBucket = 'all';
     hydrateFilters();
     setStatus(`Loaded ${formatCount(payload.instances_returned)} mined instances`, 'live');
-    nodes.reportSource.textContent = `${report.label} · ${formatCount(payload.instances_returned)} rows`;
+    nodes.reportSource.textContent = `${report.label} · ${formatCount(payload.instances_returned)} of ${formatCount(payload.instances_total)} rows`;
+    nodes.optionCache.textContent = OPTION_CACHE_LABEL;
     render();
   } catch (error) {
     setStatus(error.message || String(error), 'error');
     nodes.reportSource.textContent = 'Report unavailable';
+    nodes.optionCache.textContent = OPTION_CACHE_LABEL;
     nodes.table.innerHTML = `<tr><td colspan="10">${escapeHtml(error.message || String(error))}</td></tr>`;
   }
 }
@@ -711,6 +726,7 @@ function renderDetail(row) {
     nodes.detail.innerHTML = '<div class="eyebrow">Selected Instance</div><p>No row selected.</p>';
     return;
   }
+  const outsideOptionCache = !isInsideOptionCacheWindow(row);
   nodes.detail.innerHTML = `
     <div class="eyebrow">Selected Instance</div>
     <div class="detail-header">
@@ -751,7 +767,9 @@ function renderDetail(row) {
         </div>
         ${expiryBadge(row)}
       </div>
-      <p class="option-probe-note">Looking for ATM call and put 1-minute candles for this signal window.</p>
+      <p class="option-probe-note">${outsideOptionCache
+        ? `Option cache is currently limited to ${OPTION_CACHE_LABEL}.`
+        : 'Looking for ATM call and put 1-minute candles for this signal window.'}</p>
     </section>
     <a class="review-link" href="${escapeHtml(row.review_url)}" target="_blank" rel="noreferrer">Open symbol replay JSON</a>
   `;
@@ -831,7 +849,7 @@ function optionProbeStatusCopy(status, hasOkLeg) {
   }
   return {
     title: 'Candles not cached',
-    body: 'The option contracts are known, but this signal window does not yet have cached option candles.',
+    body: `The option contracts are known, but this signal window does not yet have cached option candles. Current cache window: ${OPTION_CACHE_LABEL}.`,
     tone: 'warning',
   };
 }

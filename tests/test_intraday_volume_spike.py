@@ -20,6 +20,7 @@ from backtest.intraday_volume_spike import (
 )
 from app.server import (
     STATIC_DIR,
+    _filter_precomputed_intraday_report,
     _resolve_static_path,
     build_intraday_day_payload_from_query,
     build_intraday_payload_from_query,
@@ -470,6 +471,31 @@ class IntradayVolumeSpikeTests(unittest.TestCase):
         self.assertEqual(first["symbol"], "TEST")
         self.assertIsInstance(first["entry_price"], float)
         self.assertIsInstance(first["bars_held"], int)
+
+    def test_precomputed_intraday_report_query_filters_signal_dates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report_path = Path(tmpdir) / "reports" / "report.csv"
+            report_path.parent.mkdir()
+            report_path.write_text(
+                "\n".join(
+                    [
+                        "bucket,symbol,signal_timestamp,entry_timestamp,exit_timestamp,entry_price,stop_loss,target_price,exit_price,exit_reason,bars_held,rr,max_favorable_rr,max_adverse_rr,return_pct,pnl_points,volume_multiple,spike_volume,rolling_median_volume,turnover,close_location,risk_reward_label,data_mode,review_url",
+                        "same_day,FEB,2026-02-27T09:21:00+05:30,2026-02-27T09:22:00+05:30,2026-02-27T09:23:00+05:30,101,100,102,102,target,1,1,1.5,-0.1,0.99,1,4.2,4200,1000,424200,0.9,1:1,equity_signal_proxy_1m,/api/intraday/analyze?symbol=FEB",
+                        "same_day,MAR,2026-03-02T09:21:00+05:30,2026-03-02T09:22:00+05:30,2026-03-02T09:23:00+05:30,101,100,102,102,target,1,1,1.5,-0.1,0.99,1,4.2,4200,1000,424200,0.9,1:1,equity_signal_proxy_1m,/api/intraday/analyze?symbol=MAR",
+                        "same_day,APR,2026-04-27T09:21:00+05:30,2026-04-27T09:22:00+05:30,2026-04-27T09:23:00+05:30,101,100,102,100,stop,1,-1,0.5,-1,-0.99,-1,4.2,4200,1000,424200,0.9,1:1,equity_signal_proxy_1m,/api/intraday/analyze?symbol=APR",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            full_payload = build_precomputed_intraday_report(report_path)
+            payload = _filter_precomputed_intraday_report(full_payload, "2026-03-01", "2026-04-30")
+
+        self.assertEqual(payload["instances_total"], 3)
+        self.assertEqual(payload["instances_returned"], 2)
+        self.assertEqual(payload["symbols"], ["APR", "MAR"])
+        self.assertEqual(payload["summary"]["wins"], 1)
+        self.assertEqual(payload["summary"]["losses"], 1)
 
 
 def _create_intraday_db(db_path: Path, extra_bars: list[IntradayBar] | None = None) -> None:
