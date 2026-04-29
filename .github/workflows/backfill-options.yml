@@ -1,0 +1,58 @@
+name: Backfill Options
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: Start signal date, inclusive
+        required: true
+        default: "2026-03-01"
+      to_date:
+        description: End signal date, inclusive
+        required: true
+        default: "2026-03-31"
+      symbols:
+        description: Optional comma-separated symbols
+        required: false
+        default: ""
+      limit_signals:
+        description: 0 means no signal limit
+        required: true
+        default: "0"
+      concurrency:
+        description: Upstox candle fetch concurrency
+        required: true
+        default: "2"
+
+jobs:
+  backfill:
+    runs-on: [self-hosted, liq-sweep, ap-south-1]
+    timeout-minutes: 180
+    env:
+      INPUT_FROM_DATE: ${{ inputs.from_date }}
+      INPUT_TO_DATE: ${{ inputs.to_date }}
+      INPUT_SYMBOLS: ${{ inputs.symbols }}
+      INPUT_LIMIT_SIGNALS: ${{ inputs.limit_signals }}
+      INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+      UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+    steps:
+      - name: Check token
+        run: test -n "$UPSTOX_ACCESS_TOKEN"
+
+      - name: Backfill ATM option candles
+        working-directory: /opt/liq-sweep
+        run: |
+          set -euo pipefail
+          args=(
+            --from-date "$INPUT_FROM_DATE"
+            --to-date "$INPUT_TO_DATE"
+            --limit-signals "$INPUT_LIMIT_SIGNALS"
+            --concurrency "$INPUT_CONCURRENCY"
+          )
+          if [ -n "$INPUT_SYMBOLS" ]; then
+            args+=(--symbols "$INPUT_SYMBOLS")
+          fi
+          node scripts/upstox_signal_options_backfill.mjs "${args[@]}"
+
+      - name: Restart app cache
+        run: sudo systemctl restart liq-sweep

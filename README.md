@@ -254,6 +254,8 @@ node scripts/upstox_signal_options_backfill.mjs --from-date 2026-03-01 --to-date
 
 The option backfill first asks Upstox for the actual expired option expiries for each symbol and stores them in `option_expiries`; this avoids guessing stock-option expiries from calendar rules.
 
+On EC2, run the `Backfill Options` GitHub Actions workflow to fill the preserved production DB and restart the app cache after the job.
+
 ### Analyze one symbol from the API
 
 ```bash
