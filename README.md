@@ -195,6 +195,8 @@ When the data is intentionally refreshed or mutated, run a manual backup on the 
 sudo bash /opt/liq-sweep/scripts/ec2_backup_data.sh
 ```
 
+Planned maintenance direction: replace ad hoc local-to-EC2 data shuttling with authenticated EC2 admin APIs. Those APIs should accept validated payloads from the local workstation for common maintenance tasks such as intraday OHLCV upserts, report CSV installation, report rebuilds, coverage checks, and cache/app reloads. Any DB mutation path should be idempotent, backup the live SQLite DB first, avoid logging secrets, and return affected row counts plus coverage deltas so local and EC2 parity can be checked immediately.
+
 ## Intraday Volume Spike Scalp
 
 This is a separate research lane for the ETERNAL-style move: quiet intraday tape, sudden abnormal volume, breakout, and quick continuation.

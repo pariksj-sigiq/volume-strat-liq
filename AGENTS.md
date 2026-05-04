@@ -169,6 +169,21 @@ python3 -m app.server --host 127.0.0.1 --port 8877
 4. If the user later wants execution realism beyond one lot, position sizing is still not configurable.
 5. Roll methodology is currently simple front-month selection by nearest expiry on each date.
 6. The UI can be improved further by showing roll boundaries and contract switches explicitly.
+7. Later, expose authenticated EC2-side maintenance APIs so local runs can submit backfill payloads/results directly to the production SQLite DB and keep EC2/local parity without ad hoc S3 transfers.
+
+## Future EC2 Maintenance APIs
+
+The user wants routine backfills and quick fixes to become API-driven from the local workstation into EC2.
+
+When implementing this later:
+
+- Add authenticated admin-only endpoints; do not expose unauthenticated DB mutation routes.
+- Prefer narrow, idempotent operations such as upserting intraday OHLCV rows, installing generated report CSVs, rebuilding reports, checking coverage, and restarting/reloading app caches.
+- Require a dry-run/validate mode for DB-changing payloads.
+- Take an EC2 backup before applying mutations to `/opt/liq-sweep/data/nse_data.db`.
+- Return coverage deltas and affected row counts so parity can be checked immediately from local.
+- Keep secrets out of logs and request/response bodies.
+- Preserve the current data contract: local and EC2 should converge on the same SQLite schema and report outputs.
 
 ## If You Touch The Strategy
 
