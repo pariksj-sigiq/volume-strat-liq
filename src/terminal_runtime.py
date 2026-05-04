@@ -234,6 +234,164 @@ def load_previous_session_warmup_bars(
     return result
 
 
+def load_cached_previous_session_warmup_bars(
+    db_path: Path,
+    *,
+    instruments: list[TerminalInstrument],
+    as_of: date,
+    bars_per_symbol: int,
+    data_mode: str = "equity_signal_proxy_1m",
+) -> dict[str, list[Bar]]:
+    """Load prior-session warmup bars from the local Upstox intraday cache."""
+
+    if bars_per_symbol <= 0:
+        raise ValueError("bars_per_symbol must be positive")
+    if not db_path.is_file():
+        return {}
+    symbols = {instrument.symbol for instrument in instruments}
+    if not symbols:
+        return {}
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        tables = {
+            row["name"]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if "ohlcv_intraday" not in tables:
+            return {}
+        row = conn.execute(
+            """
+            SELECT MAX(date) AS session_date
+            FROM ohlcv_intraday
+            WHERE data_mode = ?
+              AND timeframe_sec = 60
+              AND date < ?
+            """,
+            (data_mode, as_of.isoformat()),
+        ).fetchone()
+        session_date = str(row["session_date"] or "") if row else ""
+        if not session_date:
+            return {}
+        result: dict[str, list[Bar]] = {}
+        for instrument in instruments:
+            rows = conn.execute(
+                """
+                SELECT symbol, timestamp, open, high, low, close, volume, open_interest,
+                       instrument_key, trading_symbol
+                FROM ohlcv_intraday
+                WHERE data_mode = ?
+                  AND timeframe_sec = 60
+                  AND symbol = ?
+                  AND date = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (data_mode, instrument.symbol, session_date, bars_per_symbol),
+            ).fetchall()
+            if not rows:
+                continue
+            bars: list[Bar] = []
+            for cached in reversed(rows):
+                ts = datetime.fromisoformat(str(cached["timestamp"]))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=IST)
+                bars.append(
+                    Bar(
+                        symbol=str(cached["symbol"]).upper(),
+                        ts=ts.astimezone(IST),
+                        open=float(cached["open"]),
+                        high=float(cached["high"]),
+                        low=float(cached["low"]),
+                        close=float(cached["close"]),
+                        volume=float(cached["volume"]),
+                        instrument_key=str(cached["instrument_key"] or instrument.instrument_key),
+                        trading_symbol=str(cached["trading_symbol"] or instrument.trading_symbol),
+                        open_interest=(
+                            float(cached["open_interest"])
+                            if cached["open_interest"] is not None
+                            else None
+                        ),
+                        source="upstox_intraday_cache_warmup",
+                    )
+                )
+            result[instrument.symbol] = bars
+        return result
+    finally:
+        conn.close()
+
+
+def persist_warmup_bars(
+    db_path: Path,
+    bars_by_symbol: dict[str, list[Bar]],
+    *,
+    data_mode: str = "equity_signal_proxy_1m",
+) -> int:
+    """Persist REST-fetched warmup bars into the local intraday cache."""
+
+    rows = [
+        bar
+        for bars in bars_by_symbol.values()
+        for bar in bars
+        if bar.instrument_key
+    ]
+    if not rows:
+        return 0
+    conn = sqlite3.connect(db_path)
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        if "ohlcv_intraday" not in tables:
+            return 0
+        cursor = conn.executemany(
+            """
+            INSERT INTO ohlcv_intraday (
+              symbol, timestamp, date, timeframe_sec,
+              open, high, low, close, volume, open_interest,
+              instrument_key, trading_symbol, market_segment, instrument_type,
+              contract_expiry, lot_size, source, data_mode
+            ) VALUES (
+              ?, ?, ?, 60,
+              ?, ?, ?, ?, ?, ?,
+              ?, ?, 'NSE_EQ', 'EQ',
+              NULL, 1, 'upstox_rest_warmup', ?
+            )
+            ON CONFLICT(instrument_key, timestamp, timeframe_sec, data_mode) DO UPDATE SET
+              open = excluded.open,
+              high = excluded.high,
+              low = excluded.low,
+              close = excluded.close,
+              volume = excluded.volume,
+              open_interest = excluded.open_interest,
+              trading_symbol = excluded.trading_symbol,
+              source = excluded.source
+            """,
+            [
+                (
+                    bar.symbol.upper(),
+                    bar.ts.astimezone(IST).isoformat(),
+                    bar.ts.astimezone(IST).date().isoformat(),
+                    bar.open,
+                    bar.high,
+                    bar.low,
+                    bar.close,
+                    int(bar.volume),
+                    int(bar.open_interest or 0),
+                    str(bar.instrument_key),
+                    str(bar.trading_symbol or bar.symbol.upper()),
+                    data_mode,
+                )
+                for bar in rows
+            ],
+        )
+        conn.commit()
+        return int(cursor.rowcount if cursor.rowcount is not None else len(rows))
+    finally:
+        conn.close()
+
+
 def _previous_trading_day_candidates(as_of: date, *, lookback_days: int) -> list[date]:
     candidates: list[date] = []
     current = as_of - timedelta(days=1)
@@ -329,24 +487,42 @@ def start_terminal_runtime(
     )
     if signals_enabled:
         try:
-            warmup_bars = load_previous_session_warmup_bars(
-                rest_client=UpstoxRestClient.from_env(),
+            warmup_bars = load_cached_previous_session_warmup_bars(
+                db_path,
                 instruments=instruments,
                 as_of=datetime.now(tz=IST).date(),
                 bars_per_symbol=20,
             )
+            warmup_source = "local Upstox intraday cache"
+            missing_instruments = [
+                instrument for instrument in instruments
+                if instrument.symbol not in warmup_bars
+            ]
+            if missing_instruments:
+                rest_warmup = load_previous_session_warmup_bars(
+                    rest_client=UpstoxRestClient.from_env(),
+                    instruments=missing_instruments,
+                    as_of=datetime.now(tz=IST).date(),
+                    bars_per_symbol=20,
+                    max_workers=4,
+                    requests_per_second=8.0,
+                )
+                warmup_bars.update(rest_warmup)
+                if rest_warmup:
+                    persist_warmup_bars(db_path, rest_warmup)
+                    warmup_source = f"{warmup_source} + Upstox REST fallback"
             for instrument in instruments:
                 alert_engine.prewarm(instrument, warmup_bars.get(instrument.symbol, []))
             terminal_state.set_warmup_status(
                 seed_count=len(warmup_bars),
                 required_count=len(instruments),
-                reason=f"Prewarmed {len(warmup_bars)} / {len(instruments)} symbols from prior-session REST candles.",
+                reason=f"Prewarmed {len(warmup_bars)} / {len(instruments)} symbols from {warmup_source}.",
             )
         except Exception as exc:
             terminal_state.set_warmup_status(
                 seed_count=0,
                 required_count=len(instruments),
-                reason=f"Prior-session REST warmup failed: {type(exc).__name__}. Scanner will use live 1-minute bars.",
+                reason=f"Prior-session warmup failed: {type(exc).__name__}. Scanner will use live 1-minute bars.",
             )
             terminal_state.record_signal_block("SYSTEM", f"warmup_failed:{type(exc).__name__}", datetime.now(tz=IST))
     aggregator = OneMinuteBarAggregator()

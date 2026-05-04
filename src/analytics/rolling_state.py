@@ -51,12 +51,12 @@ class SymbolState:
 
         bar_date = bar.ts.date()
         if self.session_date != bar_date:
-            last_close = self.bars[-1].close if self.bars else None
             self._cum_pv = 0.0
             self._cum_volume = 0.0
             self.vwap_session = None
             self.atr14 = None
-            self.previous_close_seed = bar.previous_close if bar.previous_close is not None else last_close
+            if not self.bars:
+                self.previous_close_seed = bar.previous_close
             self.session_date = bar_date
         self.bars.append(bar)
         self.bars_seen += 1

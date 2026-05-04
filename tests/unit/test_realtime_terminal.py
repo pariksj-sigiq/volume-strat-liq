@@ -190,7 +190,7 @@ def test_symbol_state_resets_session_vwap_on_new_trading_day() -> None:
 
     assert state.bars_seen == 3
     assert len(state.bars) == 3
-    assert state.previous_close_seed == 102.0
+    assert state.previous_close_seed is None
     assert state.vwap_session == 110.0
 
 
