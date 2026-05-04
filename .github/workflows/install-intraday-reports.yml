@@ -1,0 +1,63 @@
+name: Install Intraday Reports
+
+on:
+  workflow_dispatch:
+    inputs:
+      report_bundle_url:
+        description: Temporary URL for a tar.gz containing reports/*.csv
+        required: true
+
+jobs:
+  install:
+    runs-on: [self-hosted, liq-sweep, ap-south-1]
+    timeout-minutes: 20
+    env:
+      REPORT_BUNDLE_URL: ${{ inputs.report_bundle_url }}
+    steps:
+      - name: Download report bundle
+        run: |
+          set -euo pipefail
+          test -n "$REPORT_BUNDLE_URL"
+          curl -fL "$REPORT_BUNDLE_URL" -o /tmp/liq-sweep-intraday-reports.tgz
+
+      - name: Install report CSVs
+        working-directory: /opt/liq-sweep
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          tar -xzf /tmp/liq-sweep-intraday-reports.tgz -C /opt/liq-sweep
+          ls -lh reports/intraday-volume-spike-bucketed-all.csv \
+            reports/intraday-volume-spike-bucketed-full.csv
+
+      - name: Print coverage
+        working-directory: /opt/liq-sweep
+        run: |
+          set -euo pipefail
+          sqlite3 -header -column data/nse_data.db "
+            SELECT date, COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols
+            FROM ohlcv_intraday
+            WHERE data_mode='equity_signal_proxy_1m'
+              AND date >= '2026-04-27'
+            GROUP BY date
+            ORDER BY date;
+          "
+          python3.11 - <<'PY'
+          import csv
+          from pathlib import Path
+
+          for file_name in [
+              "reports/intraday-volume-spike-bucketed-all.csv",
+              "reports/intraday-volume-spike-bucketed-full.csv",
+          ]:
+              path = Path(file_name)
+              with path.open(newline="", encoding="utf-8") as handle:
+                  rows = list(csv.DictReader(handle))
+              dates = [row["signal_timestamp"][:10] for row in rows if row.get("signal_timestamp")]
+              print(file_name, len(rows), min(dates) if dates else "-", max(dates) if dates else "-")
+          PY
+
+      - name: Restart app
+        run: |
+          set -euo pipefail
+          sudo systemctl restart liq-sweep
+          curl -fsS http://127.0.0.1:8877/api/health
