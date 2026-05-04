@@ -18,6 +18,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$REPORT_BUNDLE_URL"
+          echo "::add-mask::$REPORT_BUNDLE_URL"
           curl -fL "$REPORT_BUNDLE_URL" -o /tmp/liq-sweep-intraday-reports.tgz
 
       - name: Install report CSVs
@@ -60,4 +61,11 @@ jobs:
         run: |
           set -euo pipefail
           sudo systemctl restart liq-sweep
-          curl -fsS http://127.0.0.1:8877/api/health
+          for _ in {1..20}; do
+            if curl -fsS http://127.0.0.1:8877/api/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          sudo systemctl status liq-sweep --no-pager
+          exit 1
