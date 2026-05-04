@@ -1,0 +1,7 @@
+dev:
+  renderer: "console"
+  level: "INFO"
+
+production:
+  renderer: "json"
+  level: "INFO"

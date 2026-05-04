@@ -1,0 +1,114 @@
+meta:
+  version: 1
+  name: "vol_breakout_v1"
+
+capital:
+  total_inr: 1_000_000
+  per_trade_risk_pct: 0.5
+  max_concurrent_positions: 5
+  max_positions_per_sector: 2
+  daily_loss_cutoff_pct: 2.0
+  daily_profit_lock_pct: 3.0
+
+universe:
+  min_avg_turnover_cr: 50
+  min_price_inr: 50
+  exclude_tags: ["t2t", "ban_list"]
+
+session:
+  market_open: "09:15"
+  market_close: "15:30"
+  skip_windows:
+    - ["09:15", "09:20"]
+    - ["15:15", "15:30"]
+  square_off_time: "15:20"
+  pre_market_warmup_min: 5
+
+bars:
+  interval: "1min"
+  min_bars_for_signal: 25
+
+indicators:
+  breakout_lookback_bars: 20
+  atr_period: 14
+  vwap_reset: "session"
+
+tod_baseline:
+  source: "rolling_sessions"
+  window_sessions: 20
+  min_sessions_required: 10
+  aggregation: "median"
+  smoothing_minutes: 3
+  holiday_handling: "skip"
+  staleness_max_age_hours: 30
+
+signal:
+  type: "volume_breakout_long"
+  rules:
+    breakout: "close > rolling_high(20)"
+    volume: "volume >= 2.5 * tod_baseline_volume"
+    volume_mult: 2.5
+    trend: "close > vwap_session"
+    range: "(high - low) / atr14 >= 0.5"
+    min_range_atr: 0.5
+    not_in_skip_window: true
+    not_at_circuit: true
+    circuit_limit_buffer_pct: 1.0
+  profiles:
+    - name: "slow"
+      label: "Slow breakout"
+      lookback_bars: 20
+      volume_mult: 2.5
+    - name: "fast"
+      label: "Fast ignition"
+      lookback_bars: 5
+      volume_mult: 4.0
+  cooldown_minutes_after_exit: 30
+  one_signal_per_symbol_per_day: false
+
+risk:
+  sl_method: "max_of"
+  sl_components:
+    - "swing_low_last_5_bars"
+    - "close - 1.0 * atr14"
+  tp_r_multiple: 2.0
+  trail_after_r: 1.0
+  trail_atr_mult: 1.5
+  hard_time_stop_min: 90
+  single_name_notional_cap_pct: 10.0
+
+execution:
+  mode: "paper"
+  order_type: "LIMIT"
+  limit_offset_bps: 5
+  retry_on_partial: true
+  unfilled_cancel_after_sec: 10
+  slippage_bps_paper: 5
+  live_requires_flag: true
+  live_confirmation_text: "I UNDERSTAND"
+  duplicate_order_window_sec: 60
+
+costs:
+  brokerage_per_order_inr: 20
+  stt_sell_pct: 0.025
+  exchange_txn_pct: 0.00297
+  sebi_pct: 0.0001
+  stamp_duty_buy_pct: 0.003
+  gst_pct: 18
+
+backtest:
+  data_path: "data/ohlcv_1min/"
+  start_date: "2024-05-01"
+  end_date: "2025-04-30"
+  walk_forward:
+    train_months: 9
+    validate_months: 3
+    step_months: 3
+  initial_capital_inr: 1_000_000
+  reproduce_seed: 42
+
+observability:
+  log_level: "INFO"
+  metrics_port: 9100
+  tick_rate_log_interval_sec: 60
+  production_json_logs: true

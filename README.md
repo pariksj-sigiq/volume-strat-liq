@@ -203,6 +203,74 @@ This is a separate research lane for the ETERNAL-style move: quiet intraday tape
 
 Historical research uses 1-minute candles because Upstox REST historical/intraday candle APIs expose minute intervals, not 30-second candles. The live-market version should aggregate websocket ticks into 30-second bars and feed the same signal engine.
 
+## Realtime Intraday Breakout Scanner
+
+This lane is being built as a production-oriented NSE equity scanner that shares signal, filter, sizing, portfolio, and cost modules between live trading and backtests. Live execution is not wired yet and will remain behind both a `--live` flag and the typed `I UNDERSTAND` confirmation when it is added.
+
+Step 1 scaffold:
+
+- `config/strategy.yaml` is the source of truth for thresholds.
+- `src/config.py` validates the full strategy config with Pydantic v2 and rejects unknown keys.
+- `src/app.py --check-config` validates startup config without launching trading.
+- Python package skeletons are in `src/ingest`, `src/analytics`, `src/signals`, `src/risk`, `src/execution`, `src/backtest`, and `src/obs`.
+
+Install and validate:
+
+```bash
+/opt/homebrew/bin/python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+make config-check
+make test-python
+```
+
+Runtime auth remains token-only:
+
+```bash
+cp .env.example .env
+# edit UPSTOX_ACCESS_TOKEN
+```
+
+### Live React terminal
+
+The operator terminal is a Vite React/TypeScript app under `web/`. It consumes the same backend snapshot endpoint that a future iOS client should use:
+
+- `GET /api/terminal/state`
+- DTOs live in `web/src/domain/terminal.ts`
+- Python keeps serving the API and token-only Upstox websocket runtime
+
+Build the terminal assets:
+
+```bash
+npm run web:check
+```
+
+Production deploys do not build the Vite app on GitHub Actions. The built `web/dist` files are committed and deployed as static assets, so install the repository hook once after cloning:
+
+```bash
+make install-hooks
+```
+
+The pre-commit hook runs `npm run web:check` and stages `web/dist` before each commit. GitHub Actions only verifies that the committed Vite artifact exists, then deploys those assets to EC2.
+
+Run the backend and live feed:
+
+```bash
+PYTHONPATH=. python3 -m app.server --host 127.0.0.1 --port 8877 --live-terminal
+```
+
+Open:
+
+```text
+http://127.0.0.1:8877/terminal
+```
+
+For frontend-only development, run Vite with the built-in `/api` proxy:
+
+```bash
+npm run web:dev
+```
+
 ### Intraday data table
 
 `ohlcv_intraday`

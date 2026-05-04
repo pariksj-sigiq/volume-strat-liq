@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 node_modules/
+.venv/
 data/*.db
 data/*.db-*
 data/raw/
@@ -9,4 +10,5 @@ reports/
 artifacts/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/

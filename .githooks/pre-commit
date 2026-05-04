@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Building Vite terminal assets..."
+npm run web:check
+
+git add web/dist

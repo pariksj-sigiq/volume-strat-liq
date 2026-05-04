@@ -25,17 +25,26 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Install Python dependencies
+        run: |
+          python3.11 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e ".[dev]"
+
       - name: Run Node tests
         run: npm test
 
       - name: Run Python tests
-        run: python3.11 -m unittest discover -s tests -v
+        run: .venv/bin/python -m pytest -q tests
 
       - name: Static checks
         run: |
           node --check src/upstox/backfill.mjs
           node --check app/static/app.js
-          python3.11 -m py_compile app/server.py backtest/liquidity_sweep_backtest.py backtest/intraday_volume_spike.py backtest/options_overlay.py
+          test -s web/dist/index.html
+          test -n "$(find web/dist/assets -maxdepth 1 -type f -name '*.js' -print -quit)"
+          test -n "$(find web/dist/assets -maxdepth 1 -type f -name '*.css' -print -quit)"
+          .venv/bin/python -m py_compile app/server.py backtest/liquidity_sweep_backtest.py backtest/intraday_volume_spike.py backtest/options_overlay.py
 
       - name: Deploy application without touching data
         run: sudo bash scripts/ec2_deploy.sh "$GITHUB_WORKSPACE"

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liq Sweep Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body class="terminal-page">
+    <a class="skip-link" href="#terminalMain">Skip to terminal</a>
+    <div class="app-shell terminal-shell">
+      <nav class="app-nav" aria-label="Primary navigation">
+        <a class="app-nav-brand" href="/terminal">Liq Sweep Terminal</a>
+        <div class="app-nav-links">
+          <a class="active" href="/terminal">Live terminal</a>
+          <a href="/">Intraday research</a>
+          <a href="/daily">Daily futures backtest</a>
+        </div>
+      </nav>
+
+      <header class="terminal-command">
+        <div>
+          <div class="eyebrow">Realtime NSE equity scanner</div>
+          <h1>Live tape, official alerts, paper-first execution.</h1>
+        </div>
+        <div class="terminal-actions">
+          <button id="enableNotifications" class="terminal-button" type="button">Enable alerts</button>
+          <span id="terminalStatus" class="terminal-status" aria-live="polite">Connecting</span>
+        </div>
+      </header>
+
+      <section id="signalBanner" class="terminal-signal-banner" role="status" aria-live="polite"></section>
+
+      <main id="terminalMain" class="terminal-grid">
+        <section class="terminal-main-panel" aria-labelledby="terminalKpiTitle">
+          <div class="terminal-section-head">
+            <div>
+              <div class="eyebrow">Market monitor</div>
+              <h2 id="terminalKpiTitle">Feed state</h2>
+            </div>
+            <span id="terminalUpdated" class="terminal-muted">No ticks yet</span>
+          </div>
+          <div id="terminalKpis" class="terminal-kpis"></div>
+
+          <div class="terminal-split">
+            <section class="terminal-region" aria-labelledby="alertsTitle">
+              <div class="terminal-section-head compact">
+                <div>
+                  <div class="eyebrow">Notifications</div>
+                  <h2 id="alertsTitle">Trade alerts</h2>
+                </div>
+                <span id="alertCount" class="terminal-count">0</span>
+              </div>
+              <div id="alertList" class="alert-list" aria-live="polite"></div>
+            </section>
+
+            <section class="terminal-region" aria-labelledby="watchlistTitle">
+              <div class="terminal-section-head compact">
+                <div>
+                  <div class="eyebrow">Universe</div>
+                  <h2 id="watchlistTitle">Live watchlist</h2>
+                </div>
+                <input id="terminalSearch" class="terminal-search" type="search" placeholder="Filter symbol" />
+              </div>
+              <div class="terminal-table-wrap">
+                <table class="terminal-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>LTP</th>
+                      <th>Chg</th>
+                      <th>Bid</th>
+                      <th>Ask</th>
+                      <th>Volume</th>
+                      <th>Last tick</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tickTableBody">
+                    <tr><td colspan="7">Waiting for websocket ticks.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <aside class="terminal-side-panel">
+          <section class="terminal-region" aria-labelledby="operatorTitle">
+            <div class="eyebrow">Operator guardrails</div>
+            <h2 id="operatorTitle">Paper mode</h2>
+            <p>
+              This terminal streams live market data and emits scanner alerts only when the configured signal
+              prerequisites are ready. Live order placement remains disabled in this screen.
+            </p>
+            <dl id="terminalFacts" class="terminal-facts"></dl>
+          </section>
+
+          <section class="terminal-region" aria-labelledby="eventTitle">
+            <div class="terminal-section-head compact">
+              <div>
+                <div class="eyebrow">System</div>
+                <h2 id="eventTitle">Event log</h2>
+              </div>
+            </div>
+            <div id="eventLog" class="event-log"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+    <script type="module" src="/assets/terminal.js"></script>
+  </body>
+</html>

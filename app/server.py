@@ -31,13 +31,17 @@ from backtest.options_overlay import (
     load_option_expiries,
     load_market_dates,
 )
+from src.terminal import LiveTerminalState
+from src.terminal_runtime import TerminalRuntime, start_terminal_runtime
 
 
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
 STATIC_DIR = APP_DIR / "static"
+WEB_DIST_DIR = ROOT_DIR / "web" / "dist"
 DEFAULT_INTRADAY_REPORT_PATH = ROOT_DIR / "reports" / "intraday-volume-spike-bucketed-all.csv"
 VENDOR_CHART_PATH = ROOT_DIR / "node_modules" / "lightweight-charts" / "dist" / "lightweight-charts.standalone.production.js"
+TERMINAL_STATE = LiveTerminalState()
 
 INTRADAY_NUMERIC_FIELDS = {
     "entry_price",
@@ -78,11 +82,19 @@ def _bool_query(query: dict[str, list[str]], key: str, default: bool = False) ->
 
 
 def _resolve_static_path(pathname: str) -> Path | None:
+    if pathname in {"/terminal", "/terminal.html", "/live", "/live.html"}:
+        react_terminal = WEB_DIST_DIR / "index.html"
+        if react_terminal.is_file():
+            return react_terminal
+        return STATIC_DIR / "terminal.html"
     if pathname in {"/", "/intraday", "/intraday.html", "/signals", "/signals.html"}:
         return STATIC_DIR / "intraday.html"
     if pathname in {"/daily", "/daily.html", "/index.html"}:
         return STATIC_DIR / "index.html"
     if pathname.startswith("/assets/"):
+        built_asset = WEB_DIST_DIR / pathname.removeprefix("/")
+        if built_asset.is_file():
+            return built_asset
         candidate = STATIC_DIR / pathname.removeprefix("/assets/")
         if candidate.is_file():
             return candidate
@@ -485,6 +497,10 @@ def build_option_probe_from_query(db_path: Path, query: dict[str, list[str]]) ->
         return {"error": str(error)}, HTTPStatus.BAD_REQUEST
 
 
+def build_terminal_payload(state: LiveTerminalState) -> dict[str, object]:
+    return state.snapshot()
+
+
 def _coerce_intraday_csv_row(row: dict[str, str]) -> dict[str, object]:
     coerced: dict[str, object] = {}
     for key, value in row.items():
@@ -621,6 +637,10 @@ class AppHandler(BaseHTTPRequestHandler):
             payload, status = build_option_probe_from_query(db_path, query)
             self._send_json(payload, status)
             return
+        if parsed.path == "/api/terminal/state":
+            state = getattr(self.server, "terminal_state", TERMINAL_STATE)
+            self._send_json(build_terminal_payload(state))
+            return
 
         file_path = _resolve_static_path(parsed.path)
         if file_path is not None and file_path.is_file():
@@ -635,16 +655,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
     parser.add_argument("--port", type=int, default=8877, help="Port to bind.")
     parser.add_argument("--db-path", default=str(DEFAULT_DB_PATH), help="SQLite database path.")
+    parser.add_argument("--live-terminal", action="store_true", help="Start direct-token Upstox websocket feed.")
+    parser.add_argument("--terminal-symbols", default="", help="Comma-separated symbols to stream; default is DB universe.")
+    parser.add_argument("--terminal-mode", default=None, help="Upstox subscription mode, default from env or full.")
+    parser.add_argument("--terminal-ws-url", default=None, help="Direct Upstox websocket URL override.")
     args = parser.parse_args(argv)
 
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)
     server.db_path = str(Path(args.db_path).resolve())  # type: ignore[attr-defined]
+    terminal_runtime: TerminalRuntime | None = None
+    if args.live_terminal:
+        terminal_symbols = [part.strip().upper() for part in args.terminal_symbols.split(",") if part.strip()]
+        terminal_runtime = start_terminal_runtime(
+            db_path=Path(args.db_path).resolve(),
+            symbols=terminal_symbols or None,
+            mode=args.terminal_mode,
+            ws_url=args.terminal_ws_url,
+            state=TERMINAL_STATE,
+        )
+        server.terminal_state = terminal_runtime.state  # type: ignore[attr-defined]
+    else:
+        TERMINAL_STATE.set_connection(connected=False, error="Live terminal feed not started; relaunch with --live-terminal.")
+        server.terminal_state = TERMINAL_STATE  # type: ignore[attr-defined]
     print(f"Liq Sweep app available at http://{args.host}:{args.port}")
+    if args.live_terminal:
+        print(f"Trading terminal available at http://{args.host}:{args.port}/terminal")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        if terminal_runtime is not None:
+            terminal_runtime.stop()
         server.server_close()
     return 0
 

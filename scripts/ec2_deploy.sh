@@ -6,6 +6,8 @@ APP_DIR="${APP_DIR:-/opt/liq-sweep}"
 SERVICE_NAME="${SERVICE_NAME:-liq-sweep}"
 LOCK_FILE="${LOCK_FILE:-/tmp/liq-sweep-deploy.lock}"
 DB_PATH="${APP_DIR}/data/nse_data.db"
+PYTHON_BIN="${PYTHON_BIN:-python3.11}"
+VENV_DIR="${VENV_DIR:-${APP_DIR}/.venv}"
 
 if [[ -z "${SOURCE_DIR}" || ! -d "${SOURCE_DIR}" ]]; then
   echo "Source directory is required." >&2
@@ -43,6 +45,7 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data"
     --include ".env.example" \
     --exclude ".env" \
     --exclude ".env.*" \
+    --exclude ".venv/" \
     --exclude "data/" \
     --exclude "reports/" \
     --exclude "artifacts/" \
@@ -53,6 +56,23 @@ mkdir -p "${APP_DIR}" "${APP_DIR}/data"
 
   test -s "${DB_PATH}"
   chown -R ec2-user:ec2-user "${APP_DIR}"
+
+  echo "Installing Python runtime dependencies into ${VENV_DIR}"
+  "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+  "${VENV_DIR}/bin/python" -m pip install --upgrade pip
+  "${VENV_DIR}/bin/python" -m pip install -e "${APP_DIR}"
+
+  echo "Ensuring ${SERVICE_NAME} runs with the managed virtualenv"
+  mkdir -p "/etc/systemd/system/${SERVICE_NAME}.service.d"
+  cat >"/etc/systemd/system/${SERVICE_NAME}.service.d/override.conf" <<EOF
+[Service]
+WorkingDirectory=${APP_DIR}
+Environment=PYTHONPATH=${APP_DIR}
+EnvironmentFile=-${APP_DIR}/.env
+ExecStart=
+ExecStart=${VENV_DIR}/bin/python -m app.server --host 127.0.0.1 --port 8877 --db-path ${DB_PATH}
+EOF
+  systemctl daemon-reload
 
   echo "Restarting ${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
