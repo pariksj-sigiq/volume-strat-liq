@@ -1,0 +1,132 @@
+name: Backfill Intraday Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: Start candle date, inclusive
+        required: true
+        default: "2026-04-28"
+      to_date:
+        description: End candle date, inclusive
+        required: true
+        default: "2026-04-30"
+      symbols:
+        description: Optional comma-separated symbols
+        required: false
+        default: ""
+      concurrency:
+        description: Upstox candle fetch concurrency
+        required: true
+        default: "1"
+      request_delay_ms:
+        description: Delay after each candle request
+        required: true
+        default: "2000"
+      include_today:
+        description: Also call Upstox current-day intraday endpoint
+        required: true
+        default: "false"
+
+jobs:
+  backfill:
+    runs-on: [self-hosted, liq-sweep, ap-south-1]
+    timeout-minutes: 240
+    env:
+      INPUT_FROM_DATE: ${{ inputs.from_date }}
+      INPUT_TO_DATE: ${{ inputs.to_date }}
+      INPUT_SYMBOLS: ${{ inputs.symbols }}
+      INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+      INPUT_REQUEST_DELAY_MS: ${{ inputs.request_delay_ms }}
+      INPUT_INCLUDE_TODAY: ${{ inputs.include_today }}
+      UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+    steps:
+      - name: Check token
+        run: test -n "$UPSTOX_ACCESS_TOKEN"
+
+      - name: Backup production data
+        run: sudo bash /opt/liq-sweep/scripts/ec2_backup_data.sh
+
+      - name: Backfill equity 1m signal-proxy candles
+        working-directory: /opt/liq-sweep
+        run: |
+          set -euo pipefail
+          args=(
+            --from "$INPUT_FROM_DATE"
+            --to "$INPUT_TO_DATE"
+            --mode equity-signal-proxy
+            --refresh
+            --concurrency "$INPUT_CONCURRENCY"
+            --request-delay-ms "$INPUT_REQUEST_DELAY_MS"
+          )
+          if [ -n "$INPUT_SYMBOLS" ]; then
+            args+=(--symbols "$INPUT_SYMBOLS")
+          fi
+          if [ "$INPUT_INCLUDE_TODAY" = "true" ]; then
+            args+=(--include-today)
+          fi
+          node scripts/upstox_intraday_backfill.mjs "${args[@]}"
+
+      - name: Rebuild intraday report CSVs
+        working-directory: /opt/liq-sweep
+        run: |
+          set -euo pipefail
+          python3.11 -m backtest.intraday_volume_spike \
+            --bucketed \
+            --db-path data/nse_data.db \
+            --data-mode equity_signal_proxy_1m \
+            --base-lookback 20 \
+            --spike-multiple 4 \
+            --min-turnover 50000000 \
+            --close-location 0.7 \
+            --risk-reward 1.5 \
+            --max-hold-bars 10 \
+            --two-day-hold-bars 750 \
+            --max-base-range-pct 0.03 \
+            --instance-sort follow_through \
+            --max-instances 0 \
+            --output reports/intraday-volume-spike-bucketed-all.csv
+          python3.11 -m backtest.intraday_volume_spike \
+            --bucketed \
+            --db-path data/nse_data.db \
+            --data-mode equity_signal_proxy_1m \
+            --base-lookback 20 \
+            --spike-multiple 4 \
+            --min-turnover 50000000 \
+            --close-location 0.7 \
+            --risk-reward 1.5 \
+            --max-hold-bars 10 \
+            --two-day-hold-bars 750 \
+            --max-base-range-pct 0.03 \
+            --min-instance-rr 1 \
+            --instance-sort follow_through \
+            --max-instances 0 \
+            --output reports/intraday-volume-spike-bucketed-full.csv
+
+      - name: Print coverage
+        working-directory: /opt/liq-sweep
+        run: |
+          sqlite3 -header -column data/nse_data.db "
+            SELECT date, COUNT(*) AS rows, COUNT(DISTINCT symbol) AS symbols
+            FROM ohlcv_intraday
+            WHERE data_mode='equity_signal_proxy_1m'
+              AND date >= '$INPUT_FROM_DATE'
+            GROUP BY date
+            ORDER BY date;
+          "
+          python3.11 - <<'PY'
+          import csv
+          from pathlib import Path
+          for file_name in [
+              "reports/intraday-volume-spike-bucketed-all.csv",
+              "reports/intraday-volume-spike-bucketed-full.csv",
+          ]:
+              path = Path(file_name)
+              with path.open(newline="", encoding="utf-8") as handle:
+                  rows = list(csv.DictReader(handle))
+              dates = [row["signal_timestamp"][:10] for row in rows if row.get("signal_timestamp")]
+              print(file_name, len(rows), min(dates) if dates else "-", max(dates) if dates else "-")
+          PY
+
+      - name: Restart app cache
+        run: sudo systemctl restart liq-sweep
